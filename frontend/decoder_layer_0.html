@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Decoder 0 — Heads Viewer</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:16px; color:#0f172a; }
+    h1 { margin:0 0 10px; font-size:20px; }
+    h2 { margin:16px 0 8px; font-size:16px; }
+    .formula { font-style: italic; color:#555; margin:8px 0 14px; }
+    .muted { color:#64748b; }
+    .section { border:1px solid #e5e7eb; border-radius:12px; padding:12px; margin:12px 0; }
+    table { border-collapse:collapse; width:100%; }
+    th, td { border:1px solid #e5e7eb; padding:6px; text-align:left; vertical-align:top; }
+    th { background:#f8fafc; width:240px; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#f1f5f9; border:1px solid #e2e8f0; font-size:12px; color:#334155; margin-left:8px; }
+    details summary { cursor:pointer; }
+    .small { font-size:12px; color:#475569; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .truncate { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; max-width:100%; }
+    pre { background:#0b1220; color:#c7d2fe; padding:10px; border-radius:10px; overflow:auto; max-height:300px; }
+  </style>
+</head>
+<body>
+  <h1>Decoder 0 — Heads Viewer</h1>
+  <div id="formulaTop" class="formula"></div>
+
+  <div id="content" class="muted">Loading…</div>
+
+  <div id="formulaBottom" class="formula"></div>
+
+<script>
+const ENDPOINT = "/decoder/layers/0";   // change if needed
+const USE_CREDENTIALS = false;
+
+// ---------- utils ----------
+const $ = id => document.getElementById(id);
+const isTypedArray = v => ArrayBuffer.isView(v) && !(v instanceof DataView);
+const isArrayLike = v => Array.isArray(v) || isTypedArray(v);
+const aLen = v => (v && typeof v.length === 'number') ? v.length : (isTypedArray(v) ? v.length : 0);
+function fmtScalar(v){
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number') {
+    const s = String(v);
+    if (s.includes('e') || !s.includes('.')) return s;
+    return Number(v.toFixed(12)).toString();
+  }
+  return String(v);
+}
+function mkRow(label, value, {previewLen=24}={}){
+  const tr = document.createElement('tr');
+  const th = document.createElement('th'); th.textContent = label;
+  const td = document.createElement('td');
+
+  if (isArrayLike(value)) {
+    const len = aLen(value);
+    if (len > previewLen) {
+      const div = document.createElement('div');
+      div.className = 'mono truncate';
+      div.textContent = `len=${len} (preview ${previewLen})`;
+      try { div.title = Array.from(value).slice(0,previewLen).join(', ') + ' …'; } catch {}
+      td.appendChild(div);
+    } else {
+      const div = document.createElement('div');
+      div.className = 'mono';
+      try { div.textContent = Array.from(value).join(', '); }
+      catch { div.textContent = `len=${len}`; }
+      td.appendChild(div);
+    }
+  } else if (value && typeof value === 'object') {
+    const str = JSON.stringify(value);
+    const div = document.createElement('div'); div.className='mono truncate';
+    div.textContent = str.length > 300 ? str.slice(0,300)+' …' : str;
+    div.title = str;
+    td.appendChild(div);
+  } else {
+    td.textContent = fmtScalar(value);
+  }
+
+  tr.appendChild(th); tr.appendChild(td);
+  return tr;
+}
+function tableFromObject(obj, title){
+  const sec = document.createElement('div');
+  sec.className = 'section';
+  if (title){ const h=document.createElement('h2'); h.textContent=title; sec.appendChild(h); }
+  const t = document.createElement('table'); const b=document.createElement('tbody');
+  Object.entries(obj).forEach(([k,v]) => b.appendChild(mkRow(k,v)));
+  t.appendChild(b); sec.appendChild(t); return sec;
+}
+
+// ---------- decoder discovery (single) ----------
+function looksLikeDecoder(o){
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  const keys = Object.keys(o);
+  return ['layer_index','num_heads','head_dim','token_index','sample_index','merge','merged','rope','heads','head','heads_list']
+    .some(k => k in o);
+}
+function gatherDecoders(root, maxDepth=12){
+  const out = [];
+  const seen = new WeakSet();
+  (function walk(node, depth){
+    if (!node || depth>maxDepth) return;
+    if (typeof node !== 'object') return;
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (looksLikeDecoder(node)) out.push(node);
+    if (Array.isArray(node)) node.forEach(n=>walk(n, depth+1));
+    else Object.values(node).forEach(v=>walk(v, depth+1));
+  })(root,0);
+  return out;
+}
+function pickSingleDecoder(all){
+  if (!all.length) return null;
+  const zero = all.find(d => typeof d.layer_index === 'number' && d.layer_index === 0);
+  return zero || all[0];
+}
+function getHeadsArray(decoder){
+  let heads = decoder.heads || decoder.head || decoder.heads_list || null;
+  if (heads && !Array.isArray(heads) && typeof heads === 'object') heads = Object.values(heads);
+  return Array.isArray(heads) ? heads : [];
+}
+function getMerged(decoder){
+  // prefer "merged", fallback to "merge"
+  const merged = decoder.merged || decoder.merge || null;
+  if (!merged || typeof merged !== 'object') return {};
+  return merged;
+}
+
+// ---------- rendering ----------
+function renderDecoder(decoder){
+  const container = $("content");
+  container.classList.remove('muted');
+  container.innerHTML = '';
+
+  // formula
+  const formulaStr = Array.isArray(decoder.formula)
+    ? decoder.formula.join(' ; ')
+    : (typeof decoder.formula === 'string' ? decoder.formula : '');
+  $("formulaTop").textContent = formulaStr ? `Formula: ${formulaStr}` : '';
+  $("formulaBottom").textContent = formulaStr ? `Formula: ${formulaStr}` : '';
+
+  // merged vectors (support "merged" and "merge")
+  const merged = getMerged(decoder);
+  const concatVec = merged.concat_vector || merged.concatVector || null;
+  const woOut     = merged.wo_output || merged.woOutput || null;
+
+  // Overview
+  const overview = {
+    layer_index: decoder.layer_index,
+    sample_index: decoder.sample_index,
+    token_index: decoder.token_index,
+    num_heads: decoder.num_heads,
+    head_dim: decoder.head_dim,
+    rope: decoder.rope,
+    rope_note: decoder.rope_note,
+    'merged.concat_vector(length)': aLen(concatVec) || '',
+    'merged.wo_output(length)': aLen(woOut) || ''
+  };
+  container.appendChild(tableFromObject(overview, 'Decoder Overview'));
+
+  // NEW: Merged vectors section with FULL arrays
+  const mergedSec = document.createElement('div');
+  mergedSec.className = 'section';
+  const mh = document.createElement('h2'); mh.textContent = 'Merged Vectors'; mergedSec.appendChild(mh);
+
+  const mt = document.createElement('table'); const mb = document.createElement('tbody');
+  mb.appendChild(mkRow('concat_vector (length)', aLen(concatVec)));
+  mb.appendChild(mkRow('wo_output (length)', aLen(woOut)));
+  mt.appendChild(mb); mergedSec.appendChild(mt);
+
+  // Expand to show full arrays (pretty-printed)
+  const det = document.createElement('details');
+  const sum = document.createElement('summary'); sum.textContent = 'Show full arrays'; det.appendChild(sum);
+
+  const pre = document.createElement('pre'); pre.className='mono';
+  const payload = {
+    concat_vector: concatVec ? Array.from(concatVec) : null,
+    wo_output: woOut ? Array.from(woOut) : null
+  };
+  pre.textContent = JSON.stringify(payload, null, 2);
+  det.appendChild(pre);
+  mergedSec.appendChild(det);
+  container.appendChild(mergedSec);
+
+  // Heads — one table per head
+  const heads = getHeadsArray(decoder);
+  if (!heads.length) {
+    const msg = document.createElement('div');
+    msg.className = 'section small';
+    msg.textContent = 'No heads found (looked for "heads", "head", "heads_list").';
+    container.appendChild(msg);
+    return;
+  }
+
+  heads.forEach((h, i) => {
+    const sec = document.createElement('div');
+    sec.className = 'section';
+
+    const title = document.createElement('h2');
+    title.textContent = `Head #${h.head ?? i}`;
+    const pill = document.createElement('span');
+    pill.className = 'pill';
+    pill.textContent = `dim=${h.head_dim ?? decoder.head_dim ?? '-'}`;
+    title.appendChild(pill);
+    sec.appendChild(title);
+
+    const tbl = document.createElement('table');
+    const tbody = document.createElement('tbody');
+    tbody.appendChild(mkRow('head', h.head ?? i));
+    tbody.appendChild(mkRow('head_dim', h.head_dim ?? decoder.head_dim ?? ''));
+    // quick fields if present
+    ['q','k','v','context'].forEach(k => { if (k in h) tbody.appendChild(mkRow(k, h[k])); });
+
+    // trace summary
+    const trace = Array.isArray(h.trace) ? h.trace : [];
+    tbody.appendChild(mkRow('trace_stages', trace.map(t=>t.stage ?? t.stage_idx)));
+
+    // context length from trace (if any)
+    const ctxStage = trace.find(t => t.stage === 'context_head');
+    if (ctxStage && isArrayLike(ctxStage.context)) {
+      tbody.appendChild(mkRow('context_head(length)', aLen(ctxStage.context)));
+    }
+
+    tbl.appendChild(tbody);
+    sec.appendChild(tbl);
+
+    // Expandable: trace sizes + light previews
+    if (trace.length) {
+      const det2 = document.createElement('details');
+      const sum2 = document.createElement('summary');
+      sum2.textContent = 'Trace details (sizes & small previews)';
+      det2.appendChild(sum2);
+
+      const t2 = document.createElement('table');
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>stage</th><th class="small">keys</th><th class="small">summary</th></tr>';
+      t2.appendChild(thead);
+      const tb2 = document.createElement('tbody');
+
+      trace.forEach(st => {
+        const tr = document.createElement('tr');
+        const c1 = document.createElement('td'); c1.textContent = st.stage ?? st.stage_idx ?? '';
+        const c2 = document.createElement('td'); c2.className='small';
+        const c3 = document.createElement('td'); c3.className='small mono';
+
+        const keys = Object.keys(st).filter(k => k !== 'stage' && k !== 'stage_idx');
+        c2.textContent = keys.join(', ');
+
+        const parts = [];
+        keys.forEach(k => {
+          const v = st[k];
+          if (isArrayLike(v)) {
+            const len = aLen(v);
+            if (len && isArrayLike(v[0])) {
+              const d1=len, d2=aLen(v[0]), d3=(isArrayLike(v[0]?.[0])?aLen(v[0][0]):0);
+              parts.push(`${k}:[${d1}${d2?','+d2:''}${d3?','+d3:''}]`);
+            } else {
+              let preview='';
+              try { preview = Array.from(v).slice(0,6).join(', ') + (len>6?' …':''); } catch {}
+              parts.push(`${k}: len=${len}${preview?` (${preview})`:''}`);
+            }
+          } else if (v && typeof v === 'object') {
+            parts.push(`${k}:{${Object.keys(v).join(', ')}}`);
+          } else {
+            parts.push(`${k}:${fmtScalar(v)}`);
+          }
+        });
+        c3.textContent = parts.join(' | ');
+
+        tr.appendChild(c1); tr.appendChild(c2); tr.appendChild(c3);
+        tb2.appendChild(tr);
+      });
+
+      t2.appendChild(tb2);
+      det2.appendChild(t2);
+      sec.appendChild(det2);
+    }
+
+    container.appendChild(sec);
+  });
+}
+
+// ---------- load ----------
+async function load(){
+  const container = $("content");
+  try {
+    const res = await fetch(ENDPOINT + (ENDPOINT.includes('?') ? '' : `?ts=${Date.now()}`), {
+      method:'GET',
+      headers:{ 'Accept':'application/json, text/plain;q=0.9, */*;q=0.8' },
+      cache:'no-store',
+      mode:'cors',
+      credentials: USE_CREDENTIALS ? 'include' : 'omit'
+    });
+    if (!res.ok) { container.textContent = `HTTP ${res.status} ${res.statusText}`; return; }
+
+    const txt = await res.text();
+    let data;
+    try { data = JSON.parse(txt); }
+    catch {
+      const cleaned = txt.replace(/^\uFEFF/, '').replace(/^\)\]\}',?\s*\n?/, '').trim();
+      data = JSON.parse(cleaned);
+    }
+
+    const decoders = gatherDecoders(data);
+    const decoder = pickSingleDecoder(decoders);
+    if (!decoder) { container.textContent = 'No decoder object found.'; return; }
+
+    renderDecoder(decoder);
+  } catch (e) {
+    container.textContent = 'Failed to load.';
+  }
+}
+
+load();
+</script>
+</body>
+</html>

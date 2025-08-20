@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Tokenization Viewer</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 16px; }
+    h2 { margin: 0 0 6px; }
+    .formula { font-style: italic; color:#555; margin: 0 0 12px; }
+    .sample-title { background:#e2e8f0; font-weight:600; padding:8px; border:1px solid #ddd; border-bottom:0; margin-top:12px; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 10px; }
+    th, td { border:1px solid #ddd; padding:6px; vertical-align: top; }
+    th { width: 160px; background:#fafafa; text-align:left; }
+    #out { min-height: 40px; }
+    .muted { color:#666; }
+  </style>
+</head>
+<body>
+  <h2>Tokenization</h2>
+  <div class="formula">Formula: Text → tokenizer(x) → Tokens → IDs → pad/truncate→T → Attention Mask</div>
+
+  <div id="out" class="muted">Loading…</div>
+
+<script>
+// ===== CONFIG =====
+const ENDPOINT = "/tokenization";   // <-- set your endpoint here
+const USE_CREDENTIALS = false;      // set true if API needs cookies and CORS allows credentials
+
+// ===== Helpers =====
+function pickArray(payload){
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object') {
+    if (Array.isArray(payload.records)) return payload.records;  // your case
+    if (Array.isArray(payload.data))    return payload.data;
+    if (Array.isArray(payload.samples)) return payload.samples;
+    if (Array.isArray(payload.result))  return payload.result;
+    if (Array.isArray(payload.items))   return payload.items;
+  }
+  return null;
+}
+
+function render(arr){
+  const outEl = document.getElementById('out');
+  outEl.classList.remove('muted');
+  outEl.innerHTML = '';
+
+  if (!Array.isArray(arr) || arr.length === 0){
+    outEl.textContent = 'No items to display.';
+    return;
+  }
+
+  arr.forEach((item, idx) => {
+    const sidx = (item && item.sample_index != null) ? item.sample_index : idx;
+    const s = (item && item.sample) ? item.sample : item;
+
+    const input_text = s?.input_text ?? '';
+    const tokens = Array.isArray(s?.tokens) ? s.tokens : [];
+    const ids = Array.isArray(s?.token_ids) ? s.token_ids : (Array.isArray(s?.ids) ? s.ids : []);
+    const mask = Array.isArray(s?.attention_mask) ? s.attention_mask : (Array.isArray(s?.mask) ? s.mask : []);
+
+    const title = document.createElement('div');
+    title.className = 'sample-title';
+    title.textContent = `Sample Index: ${sidx}`;
+    outEl.appendChild(title);
+
+    const tbl = document.createElement('table');
+    const tbody = document.createElement('tbody');
+
+    const mkRow = (label, val) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th'); th.textContent = label;
+      const td = document.createElement('td');
+      if (Array.isArray(val)) {
+        const cap = val.length > 200 ? val.slice(0,200).concat(`…(+${val.length-200} more)`) : val;
+        td.textContent = cap.join(', ');
+      } else {
+        td.textContent = String(val ?? '');
+      }
+      tr.appendChild(th); tr.appendChild(td);
+      return tr;
+    };
+
+    tbody.appendChild(mkRow('Input Text', input_text));
+    tbody.appendChild(mkRow('Tokens', tokens));
+    tbody.appendChild(mkRow('Token IDs', ids));
+    tbody.appendChild(mkRow('Attention Mask', mask));
+    tbl.appendChild(tbody);
+    outEl.appendChild(tbl);
+  });
+}
+
+async function load(){
+  const outEl = document.getElementById('out');
+  try {
+    const url = ENDPOINT + (ENDPOINT.includes('?') ? '' : `?ts=${Date.now()}`);
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json, text/plain;q=0.9, */*;q=0.8' },
+      cache: 'no-store',
+      mode: 'cors',
+      credentials: USE_CREDENTIALS ? 'include' : 'omit'
+    });
+
+    if (!res.ok) {
+      outEl.textContent = `HTTP ${res.status} ${res.statusText}`;
+      return;
+    }
+
+    // parse JSON (simple, with basic BOM/XSSI cleanup fallback)
+    let payload;
+    const text = await res.text();
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      const cleaned = text.replace(/^\uFEFF/, '').replace(/^\)\]\}',?\s*\n?/, '').trim();
+      payload = JSON.parse(cleaned);
+    }
+
+    const arr = pickArray(payload);
+    if (!arr) {
+      outEl.textContent = 'Parsed OK but could not locate an array (looked under records, data, samples, result, items).';
+      return;
+    }
+    render(arr);
+
+  } catch (e) {
+    outEl.textContent = 'Failed to load.';
+    // If you want to debug silently, uncomment:
+    // console.error(e);
+  }
+}
+
+load();
+</script>
+</body>
+</html>

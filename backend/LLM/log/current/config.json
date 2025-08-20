@@ -1,0 +1,16 @@
+{
+  "hidden_size": 256,
+  "num_heads": 10,
+  "num_layers": 8,
+  "intermediate_size": 1024,
+  "max_position_embeddings": 128,
+  "vocab_size": 51200  ,
+  "use_rotary": true,
+  "rotary_dim": 32,
+  "norm_type": "layernorm",
+  "ffn_type": "gelu",
+  "qkv_proj": "fused",
+  "tie_weights": true
+
+}
+

@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Transformer Training Visualizer</title>
+  <base href="/" />
+  <style>
+    body { display: flex; font-family: Arial, sans-serif; margin: 0; height: 100vh; }
+    #sidebar { width: 260px; background: #f4f4f4; padding: 12px; height: 100vh; overflow:auto; box-sizing: border-box; }
+    #content { flex: 1; padding: 20px; box-sizing: border-box; overflow:auto; }
+    button { margin: 5px 8px 5px 0; }
+    .sidebar-item { padding: 8px; cursor: pointer; border-radius: 6px; }
+    .sidebar-item:hover { background: #e8e8e8; }
+    .layer-title { cursor: pointer; font-weight: 600; margin: 6px 0 2px; }
+    .head-item { cursor: pointer; padding: 4px 0; font-size: 13px; }
+    pre { background: #fafafa; border: 1px solid #eee; padding: 10px; overflow: auto; }
+    #status { margin-top: 6px; color: #1a7f37; }
+  </style>
+</head>
+<body>
+  <!-- LEFT SIDEBAR -->
+  <div id="sidebar">
+    <h3>Pipeline Explorer</h3>
+    <div class="sidebar-item" onclick="showPanel('tokenization')">0. Input & Tokenization</div>
+    <div class="sidebar-item" onclick="showPanel('embedding')">1. Embeddings</div>
+
+    <!-- Decoder section with dynamic Layers → Heads -->
+    <div class="sidebar-item" onclick="loadDecoder()">2. Decoder Block</div>
+    <div id="decoder-tree" style="margin-left:10px;"></div>
+
+    <div class="sidebar-item" onclick="showPanel('output')">3. Output Layer</div>
+    <div class="sidebar-item" onclick="showPanel('loss')">4. Loss</div>
+    <div class="sidebar-item" onclick="showPanel('optim')">5. Optimization</div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div id="content">
+    <h2>Training Control</h2>
+    Steps: <input id="steps" type="number" value="20" min="1" />
+    <button onclick="startTraining()">Start</button>
+    <button onclick="stopTraining()">Stop</button>
+    <div id="status">Idle</div>
+
+    <h2 style="margin-top:24px;">Visualization</h2>
+    <div id="panel">Select a component from the sidebar...</div>
+  </div>
+
+  <script>
+    // ------- tiny helpers -------
+    function escapeHTML(s) {
+      return s.replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+    function fmtTime(ts) {
+      if (!ts) return '';
+      const d = new Date(ts * 1000);
+      return d.toLocaleString();
+    }
+    async function getJSON(url) {
+      const r = await fetch(url);
+      return { ok: r.ok, status: r.status, data: r.ok ? await r.json() : null };
+    }
+
+    // ------- training controls (works with your server.py) -------
+    async function startTraining() {
+      const steps = parseInt(document.getElementById('steps').value) || 20;
+      await fetch('/start_training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metrics: [], max_steps: steps })
+      });
+      document.getElementById('status').innerText = 'Training started...';
+      pollSteps();
+    }
+
+    async function stopTraining() {
+      await fetch('/stop_training', { method: 'POST' });
+      document.getElementById('status').innerText = 'Training stopped.';
+    }
+
+    async function pollSteps() {
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch('/training_step');
+          const data = await res.json();
+          if (data.status === 'stopped') {
+            document.getElementById('status').innerText = `Training stopped at step ${data.step ?? '-'}`;
+            clearInterval(interval);
+          } else if (data.status === 'running') {
+            document.getElementById('status').innerText = `Running step ${data.step}/${data.max_steps ?? ''}`;
+          } else if (data.status === 'ok') {
+            document.getElementById('status').innerText = `Step ${data.step} (loss ~ ${data.loss})`;
+          } else {
+            document.getElementById('status').innerText = 'Waiting...';
+          }
+        } catch {
+          document.getElementById('status').innerText = 'Training: (no response)';
+        }
+      }, 600);
+    }
+
+    // ------- router for sidebar clicks -------
+    async function showPanel(name) {
+  if (name === 'tokenization') return showTokenizationPanel();
+  if (name === 'embedding')    return showEmbeddingsPanel();
+  if (name === 'output')       return showOutputPanel();
+  if (name === 'loss')         return showLossPanel();      // ← add
+  if (name === 'optim')        return showOptimPanel();     // ← add
+  return showMockPanel(name);
+}
+    // ------- TOKENIZATION (live → mock fallback) -------
+    async function showTokenizationPanel() {
+      const panel = document.getElementById('panel');
+      panel.innerText = 'Loading tokenization...';
+
+      let resp = await getJSON('/tokenization');
+      let usingMock = false;
+      if (!resp.ok) {
+        resp = await getJSON('/mock/tokenization');
+        usingMock = true;
+      }
+      if (!resp.ok) {
+        panel.innerText = 'No tokenization data yet.';
+        return;
+      }
+
+      let records = [];
+      let updated = null;
+      let file = '';
+      if (!usingMock) {
+        records = resp.data.records || [];
+        updated = resp.data.updated_unix || null;
+        file = resp.data.file || '';
+      } else {
+        records = [ { sample: resp.data.data, formula: resp.data.data.formula } ];
+      }
+      if (!records.length) { panel.innerText = 'No tokenization records.'; return; }
+
+      const n = records.length;
+      const picker = (n > 1) ? `
+        <label style="font-size:13px;">Sample:
+          <select id="tok-sel">${Array.from({length:n},(_,i)=>`<option value="${i}">${i}</option>`).join('')}</select>
+        </label>` : '';
+
+      panel.innerHTML = `
+        <h3>Input & Tokenization ${usingMock ? '(mock)' : ''}</h3>
+        ${!usingMock ? `<div style="font-size:12px;color:#666;">file: ${file} · updated: ${fmtTime(updated)}</div>` : ''}
+        <div style="margin:8px 0;">Batch size: ${n} ${picker}</div>
+        <div id="tok-body"></div>
+      `;
+
+      function render(idx) {
+        const rec = records[idx] || records[0];
+        const s = rec.sample || rec;
+        const tokens = s.tokens ?? [];
+        const ids = s.ids ?? s.input_ids ?? [];
+        const mask = s.attention_mask ?? s.mask ?? [];
+
+        document.getElementById('tok-body').innerHTML = `
+          ${rec.formula ? `<p><b>Formula:</b> ${rec.formula}</p>` : ''}
+          ${s.input_text ? `<details open><summary><b>Input text</b></summary><pre>${escapeHTML(s.input_text)}</pre></details>` : ''}
+          <details open><summary><b>Tokens</b> (${tokens.length})</summary><pre>${escapeHTML(JSON.stringify(tokens, null, 2))}</pre></details>
+          <details open><summary><b>IDs</b> (${ids.length})</summary><pre>${escapeHTML(JSON.stringify(ids, null, 2))}</pre></details>
+          ${mask.length ? `<details><summary><b>Attention mask</b></summary><pre>${escapeHTML(JSON.stringify(mask, null, 2))}</pre></details>` : ''}
+        `;
+      }
+      render(0);
+      const sel = document.getElementById('tok-sel');
+      if (sel) sel.onchange = () => render(parseInt(sel.value));
+    }
+async function showLossPanel() {
+  const panel = document.getElementById('panel');
+  panel.innerText = 'Loading loss...';
+
+  let resp = await getJSON('/loss');
+  let usingMock = false;
+  if (!resp.ok || (resp.data && resp.data.status && resp.data.status !== 'ok')) {
+    resp = await getJSON('/mock/loss');  // optional fallback if you keep the mock
+    usingMock = true;
+  }
+  if (!resp.ok) { panel.innerText = 'No loss yet.'; return; }
+
+  const meta = resp.data || {};
+  const root = usingMock ? (meta.data || meta) : (meta.data || meta);
+  const file = usingMock ? '' : (meta.file || '');
+  const updated = usingMock ? null : (meta.updated_unix || null);
+
+  const ht = (root.hardest_tokens || []).slice(0, 10);
+  const rows = ht.map(h =>
+    `<tr><td>${h.b}</td><td>${h.t}</td><td>${h.target_id}${h.target_token ? ' ('+escapeHTML(h.target_token)+')' : ''}</td><td>${h.pred_id}${h.pred_token ? ' ('+escapeHTML(h.pred_token)+')' : ''}</td><td>${h.nll.toFixed(4)}</td></tr>`
+  ).join('');
+
+  panel.innerHTML = `
+    <h3>Loss ${usingMock ? '(mock)' : ''}</h3>
+    ${!usingMock ? `<div style="font-size:12px;color:#666;">file: ${file} · ${updated ? 'updated: ' + fmtTime(updated) : ''}</div>` : ''}
+    <div>Step: ${root.step ?? '-'} | Loss: ${root.loss?.toFixed ? root.loss.toFixed(4) : root.loss} | PPL: ${root.ppl?.toFixed ? root.ppl.toFixed(2) : root.ppl}</div>
+    <div>Batch=${root.batch_size ?? '?'} · SeqLen=${root.seq_len ?? '?'} · Vocab=${root.vocab_size ?? '?'}</div>
+    ${Array.isArray(root.per_seq_loss) ? `<div>Per-seq: ${root.per_seq_loss.map(x => x.toFixed(4)).join(', ')}</div>` : ''}
+    <p><b>Formula:</b> ${escapeHTML(root.formula || 'NLL = -log softmax(logits) at target; loss = mean; ppl = exp(loss)')}</p>
+    ${rows ? `
+      <h4>Hardest tokens (top-10 by NLL)</h4>
+      <table border="1" cellpadding="4" cellspacing="0">
+        <tr><th>b</th><th>t</th><th>target</th><th>pred</th><th>NLL</th></tr>
+        ${rows}
+      </table>` : `<div>No hardest-token sample yet.</div>`
+    }
+    <details style="margin-top:10px;"><summary>Raw payload</summary><pre>${escapeHTML(JSON.stringify(root, null, 2))}</pre></details>
+  `;
+}
+
+
+  async function showOptimPanel() {
+    const panel = document.getElementById('panel');
+    panel.innerText = 'Loading optimizer...';
+
+    // try live, then mock fallback
+    let resp = await getJSON('/optim');
+    let usingMock = false;
+    if (!resp.ok || (resp.data && resp.data.status && resp.data.status !== 'ok')) {
+      resp = await getJSON('/mock/optim');
+      usingMock = true;
+    }
+    if (!resp.ok) { panel.innerText = 'No optimizer data.'; return; }
+
+    // unify shapes: live -> {status:'ok', data:{...}}, mock -> {status:'ok', data:{...}}
+    const root = resp.data.data || resp.data || {};
+    const rows = root.parameters || root.params || root.layers || [];   // accept any field name
+    const samples = root.samples || [];
+
+    const fmt = (x, d=6) => (x === null || x === undefined || Number.isNaN(x)) ? '—'
+                         : (typeof x === 'number' ? x.toFixed(d) : x);
+
+    // build per-parameter table
+    let table = `
+      <table class="grid">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Parameter</th>
+            <th>‖θ‖</th>
+            <th>‖g‖</th>
+            <th>‖m‖</th>
+            <th>‖v‖</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    rows.forEach((r, i) => {
+      const name = r.display || r.name || r.short || '(unnamed)';
+      table += `
+        <tr>
+          <td>${i}</td>
+          <td>${escapeHTML(name)}</td>
+          <td>${fmt(r.param_norm)}</td>
+          <td>${fmt(r.grad_norm)}</td>
+          <td>${fmt(r.m_norm)}</td>
+          <td>${fmt(r.v_norm)}</td>
+        </tr>
+      `;
+    });
+    table += `</tbody></table>`;
+
+    // tracked weight snapshots (before/after/delta for a few big tensors)
+    let snaps = '';
+    if (samples.length) {
+      snaps = samples.map(s => `
+        <details>
+          <summary><b>${escapeHTML(s.display || s.name || '(sample)')}</b> — ‖Δ‖ = ${fmt(s.update_norm)}</summary>
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div>
+              <div style="font-size:12px; color:#666;">before[0:16]</div>
+              <pre>${escapeHTML(JSON.stringify(s.before_head, null, 2))}</pre>
+            </div>
+            <div>
+              <div style="font-size:12px; color:#666;">after[0:16]</div>
+              <pre>${escapeHTML(JSON.stringify(s.after_head, null, 2))}</pre>
+            </div>
+            <div>
+              <div style="font-size:12px; color:#666;">delta[0:16]</div>
+              <pre>${escapeHTML(JSON.stringify(s.delta_head, null, 2))}</pre>
+            </div>
+          </div>
+        </details>
+      `).join('');
+    }
+
+    // header/meta
+    const lr = root.lr;
+    const step = root.step;
+    const ampOn = root.amp && root.amp.enabled;
+    const ampScale = root.amp ? root.amp.scaler_scale : null;
+    const gpre = root.grad ? root.grad.global_norm_pre_clip : null;
+    const gpost = root.grad ? root.grad.global_norm_post_clip : null;
+    const gmax = root.grad ? root.grad.clip_max_norm : null;
+
+    panel.innerHTML = `
+      <h3>Optimization ${usingMock ? '(mock)' : ''}</h3>
+      <div>Step ${step} — lr=${fmt(lr)} — AMP=${ampOn ? 'on' : 'off'}${ampOn ? ` (scale=${fmt(ampScale)})` : ''}</div>
+      <div>Grad ‖·‖ pre-clip=${fmt(gpre)} → post-clip=${fmt(gpost)} ${gmax!==null ? `(clip max=${fmt(gmax)})` : ''}</div>
+
+      <details open>
+        <summary><b>Per-parameter stats</b> (${rows.length})</summary>
+        ${table}
+      </details>
+
+      ${samples.length ? `<h4 style="margin-top:16px;">Tracked weight snapshots</h4>${snaps}` : ''}
+
+      ${root.formula ? `<p><b>Update rule:</b> ${root.formula}</p>` : ''}
+    `;
+  }
+
+
+
+function topK(arr, k) {
+    const idx = Array.from({length: arr.length}, (_, i) => i);
+    idx.sort((a,b) => arr[b] - arr[a]);
+    const kk = Math.min(k, idx.length);
+    return Array.from({length: kk}, (_, i) => ({ id: idx[i], logit: arr[idx[i]] }));
+  }
+
+  async function showOutputPanel() {
+    const panel = document.getElementById('panel');
+    panel.innerText = 'Loading output...';
+
+    // Try live /output first, then mock
+    let resp = await getJSON('/output');
+    let usingMock = false;
+    if (!resp.ok || (resp.data && resp.data.status && resp.data.status !== 'ok')) {
+      resp = await getJSON('/mock/output');
+      usingMock = true;
+    }
+    if (!resp.ok) { panel.innerText = 'No output provided.'; return; }
+
+    // Normalize the root payload
+    const meta = resp.data || {};
+    const root = usingMock ? (meta.data || meta) : (meta.data || meta);
+    const file = usingMock ? '' : (meta.file || '');
+    const updated = usingMock ? null : (meta.updated_unix || null);
+
+    // If already in steps[] shape, use it; otherwise build steps from common key names.
+    let steps = Array.isArray(root.steps) ? root.steps.slice() : [];
+
+    if (!steps.length) {
+      // Collect from a variety of possible keys you might be logging
+      // Residual (before final LN)
+      const xPre = root.x_pre_norm || root.residual_before_final_ln || root.residual || root.before_ln || null;
+      if (xPre) {
+        steps.push({
+          name: 'residual_before_final_ln',
+          norm: xPre.norm ?? root.residual_norm ?? null,
+          vector: Array.isArray(xPre.vector) ? xPre.vector
+                 : Array.isArray(xPre) ? xPre
+                 : (Array.isArray(root.residual_vector) ? root.residual_vector : null),
+          vector_preview: xPre.vector_preview ?? null,
+          length: xPre.length ?? (Array.isArray(xPre.vector) ? xPre.vector.length :
+                                   Array.isArray(xPre) ? xPre.length :
+                                   Array.isArray(root.residual_vector) ? root.residual_vector.length : null),
+          note: xPre.note ?? null
+        });
+      }
+
+      // After LN
+      const xPost = root.x_post_norm || root.after_final_ln || root.after_ln || null;
+      if (xPost) {
+        steps.push({
+          name: 'after_final_ln',
+          norm: xPost.norm ?? root.after_ln_norm ?? null,
+          vector: Array.isArray(xPost.vector) ? xPost.vector
+                 : Array.isArray(xPost) ? xPost
+                 : (Array.isArray(root.after_ln_vector) ? root.after_ln_vector : null),
+          vector_preview: xPost.vector_preview ?? null,
+          length: xPost.length ?? (Array.isArray(xPost.vector) ? xPost.vector.length :
+                                   Array.isArray(xPost) ? xPost.length :
+                                   Array.isArray(root.after_ln_vector) ? root.after_ln_vector.length : null),
+          note: xPost.note ?? null
+        });
+      }
+
+      // Final logits (prefer a provided topk; else compute from raw logits)
+      const fl = root.final_logits_topk || root.final_logits || root.logits || null;
+      if (fl) {
+        // try to find a topk array
+        let topk = fl.topk || root.topk || null;
+        // or compute from raw logits
+        const logits = Array.isArray(fl) ? fl
+                       : Array.isArray(fl.logits) ? fl.logits
+                       : (Array.isArray(root.logits) ? root.logits : null);
+        if (!topk && Array.isArray(logits)) {
+          topk = topK(logits, 10);
+        }
+        steps.push({
+          name: 'final_logit (topk)',
+          topk: topk || [],
+          // optional previews if you logged them
+          logits_preview: Array.isArray(fl.logits_preview) ? fl.logits_preview : null,
+          argmax: fl.argmax ?? root.argmax ?? null
+        });
+
+        // If you actually logged a full logits vector and want it visible:
+        if (Array.isArray(logits)) {
+          steps.push({
+            name: 'final_logit (preview)',
+            vector_preview: logits.slice(0, Math.min(256, logits.length)),
+            length: logits.length,
+            note: 'Preview of raw logits vector (truncated client-side)'
+          });
+        }
+      }
+    }
+
+    // Header & dropdown
+    panel.innerHTML = `
+      <h3>Output ${usingMock ? '(mock)' : ''}</h3>
+      ${!usingMock ? `<div style="font-size:12px;color:#666;">file: ${file} ${updated ? '· updated: ' + fmtTime(updated) : ''}</div>` : ''}
+      ${root.formula ? `<p><b>Formula:</b> ${Array.isArray(root.formula) ? escapeHTML(root.formula.join(' → ')) : escapeHTML(String(root.formula))}</p>` : ''}
+      <div style="margin:8px 0;">
+        ${Number.isInteger(root.sample_index) ? `sample=${root.sample_index} · ` : ''}
+        ${Number.isInteger(root.token_index) ? `token=${root.token_index} · ` : ''}
+        ${root.dims ? `hidden=${root.dims.hidden ?? '?'} · vocab=${root.dims.vocab ?? '?'}` : ''}
+      </div>
+      ${steps.length ? `
+        <label>Step:
+          <select id="out-step">
+            ${steps.map((s, i) => `<option value="${i}">${escapeHTML(s.name || ('step ' + i))}</option>`).join('')}
+          </select>
+        </label>
+        <div id="out-step-view" style="margin-top:10px;"></div>
+      ` : `<div>No recognizable output steps in payload.</div>`}
+      <details style="margin-top:12px;">
+        <summary>Raw payload</summary>
+        <pre>${escapeHTML(JSON.stringify(root, null, 2))}</pre>
+      </details>
+    `;
+
+    if (!steps.length) return;
+
+    const select = document.getElementById('out-step');
+    const render = (idx) => {
+      const s = steps[idx];
+      let html = `<h4>${escapeHTML(s.name || ('step ' + idx))}</h4>`;
+
+      if (typeof s.norm === 'number') {
+        html += `<div>L2 norm: ${s.norm.toFixed(6)}</div>`;
+      }
+      if (Array.isArray(s.topk) && s.topk.length) {
+        html += `<details open><summary><b>Top-k logits</b></summary><pre>${escapeHTML(JSON.stringify(s.topk, null, 2))}</pre></details>`;
+      }
+      const vec = s.vector || s.vector_preview;
+      if (Array.isArray(vec)) {
+        html += `<div>Vector length: ${s.length ?? vec.length}</div>`;
+        html += `<details open><summary><b>Vector${s.vector_preview && !s.vector ? ' (preview)' : ''}</b></summary><pre>${escapeHTML(JSON.stringify(vec, null, 2))}</pre></details>`;
+      }
+      if (Array.isArray(s.logits_preview)) {
+        html += `<details><summary><b>Logits (preview)</b></summary><pre>${escapeHTML(JSON.stringify(s.logits_preview, null, 2))}</pre></details>`;
+      }
+      if (Number.isInteger(s.argmax)) {
+        html += `<div>Argmax id: ${s.argmax}</div>`;
+      }
+      if (s.note) {
+        html += `<p><i>${escapeHTML(String(s.note))}</i></p>`;
+      }
+      document.getElementById('out-step-view').innerHTML = html;
+    };
+
+    render(0);
+    select.onchange = () => render(parseInt(select.value));
+  }
+
+    // ------- EMBEDDINGS (live → mock fallback) -------
+    async function showEmbeddingsPanel() {
+      const panel = document.getElementById('panel');
+      panel.innerText = 'Loading embeddings...';
+
+      let resp = await getJSON('/embeddings');
+      let usingMock = false;
+      if (!resp.ok) {
+        resp = await getJSON('/mock/embedding');
+        usingMock = true;
+      }
+      if (!resp.ok) { panel.innerText = 'No embeddings yet.'; return; }
+
+      let obj, file='', updated=null;
+      if (!usingMock) {
+        obj = resp.data.data;
+        file = resp.data.file || '';
+        updated = resp.data.updated_unix || null;
+      } else {
+        obj = resp.data.data;
+      }
+
+      const meta = obj.sample || obj;
+      const shape = meta.shape || meta.emb_shape || meta.embedding_shape || null;
+
+      panel.innerHTML = `
+        <h3>Embeddings ${usingMock ? '(mock)' : ''}</h3>
+        ${!usingMock ? `<div style="font-size:12px;color:#666;">file: ${file} · updated: ${fmtTime(updated)}</div>` : ''}
+        ${obj.formula ? `<p><b>Formula:</b> ${obj.formula}</p>` : ''}
+        ${shape ? `<div>Shape: ${Array.isArray(shape) ? shape.join('×') : shape}</div>` : ''}
+        <details open><summary><b>Payload</b></summary><pre>${escapeHTML(JSON.stringify(obj, null, 2))}</pre></details>
+      `;
+    }
+
+    // ------- DECODER → Layers → Heads (live → mock fallback) -------
+    async function loadDecoder() {
+      const tree = document.getElementById('decoder-tree');
+      tree.innerHTML = 'Loading layers...';
+
+      let resp = await getJSON('/decoder/layers');
+      let usingMock = false;
+      if (!resp.ok) {
+        resp = await getJSON('/mock/decoder/layers');
+        usingMock = true;
+      }
+      if (!resp.ok) { tree.innerText = 'No decoder layers found.'; return; }
+
+      const layers = usingMock ? resp.data.data : resp.data.layers;
+      tree.innerHTML = '';
+      layers.forEach(layer => {
+        const L = layer.layer;
+        const nh = layer.num_heads || layer.heads || 0;
+        const layerWrap = document.createElement('div');
+        layerWrap.innerHTML = `
+          <div class="layer-title" onclick="loadLayer(${L}, ${usingMock})">
+            Layer ${L} <span style="font-weight:400;">(${nh} heads)</span>
+          </div>
+          <div id="layer-${L}-heads" style="margin-left:12px;"></div>
+        `;
+        tree.appendChild(layerWrap);
+      });
+
+      const panel = document.getElementById('panel');
+      let sum = await getJSON(usingMock ? '/mock/decoder' : '/decoder');
+      if (sum.ok) {
+        const d = sum.data.data || sum.data;
+        panel.innerHTML = `
+          <h3>Decoder Summary ${usingMock ? '(mock)' : ''}</h3>
+          <pre>${escapeHTML(JSON.stringify(d, null, 2))}</pre>
+        `;
+      }
+    }
+
+    async function loadLayer(L, useMock=false) {
+      const host = document.getElementById(`layer-${L}-heads`);
+      host.innerHTML = 'Loading heads...';
+
+      const url = useMock ? `/mock/decoder/layers/${L}` : `/decoder/layers/${L}`;
+      const res = await getJSON(url);
+      if (!res.ok) { host.innerText = 'Error loading layer'; return; }
+
+      const layerData = res.data.data || res.data;
+      const heads = layerData.heads || [];
+      host.innerHTML = '';
+      heads.forEach(h => {
+        const H = (typeof h.head === 'number') ? h.head : h;
+        const ent = h.entropy ?? '';
+        const qn = h.q_norm ?? '', kn = h.k_norm ?? '', vn = h.v_norm ?? '';
+        const div = document.createElement('div');
+        div.className = 'head-item';
+        div.textContent = `Head ${H} — H=${ent} | q=${qn} k=${kn} v=${vn}`;
+        div.onclick = () => loadHead(L, H, useMock);
+        host.appendChild(div);
+      });
+
+      const panel = document.getElementById('panel');
+      panel.innerHTML = `
+        <h3>Decoder Layer ${L} ${useMock ? '(mock)' : ''}</h3>
+        <pre>${escapeHTML(JSON.stringify(layerData, null, 2))}</pre>
+      `;
+    }
+
+    async function loadHead(L, H, useMock=false) {
+      const url = useMock ? `/mock/decoder/layers/${L}/heads/${H}` : `/decoder/layers/${L}/heads/${H}`;
+      const res = await getJSON(url);
+      const panel = document.getElementById('panel');
+
+      if (!res.ok) { panel.innerText = 'Error loading head'; return; }
+      const payload = res.data.data || res.data;
+      const d = payload.data || payload;
+
+      let heat = '';
+      if (d.attention) {
+        heat = `<canvas id="heat" width="320" height="320" style="border:1px solid #ccc; margin:10px 0;"></canvas>`;
+      }
+
+      let traceBlock = '';
+      if (d.trace) {
+        traceBlock = `
+          <details open>
+            <summary><b>Head trace (ordered steps)</b></summary>
+            <pre>${escapeHTML(JSON.stringify(d.trace, null, 2))}</pre>
+          </details>`;
+      }
+
+      panel.innerHTML = `
+        <h3>Layer ${L} — Head ${H} ${useMock ? '(mock)' : ''}</h3>
+        ${d.entropy !== undefined ? `<div>Entropy: ${d.entropy} | q=${d.q_norm} k=${d.k_norm} v=${d.v_norm}</div>` : ''}
+        ${heat}
+        ${d.top_indices ? `<details><summary>Top indices (per row)</summary><pre>${escapeHTML(JSON.stringify(d.top_indices, null, 2))}</pre></details>` : ''}
+        ${traceBlock}
+      `;
+
+      if (d.attention) drawHeatmap('heat', d.attention);
+    }
+
+    function drawHeatmap(canvasId, matrix) {
+      const c = document.getElementById(canvasId);
+      if (!c) return;
+      const ctx = c.getContext('2d');
+      const T = matrix.length;
+      const cell = c.width / T;
+      for (let i = 0; i < T; i++) {
+        for (let j = 0; j < T; j++) {
+          const v = matrix[i][j]; // 0..1
+          const shade = Math.floor((1 - v) * 255); // darker = higher prob
+          ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
+          ctx.fillRect(j * cell, i * cell, cell, cell);
+        }
+      }
+    }
+
+    // ------- keep mock panel for Output/Loss/Optim for now -------
+    async function showMockPanel(name) {
+      const panel = document.getElementById('panel');
+      panel.innerText = 'Loading...';
+      const res = await getJSON(`/mock/${name}`);
+      if (!res.ok || res.data.status !== 'ok') {
+        panel.innerText = 'Error.';
+        return;
+      }
+      const d = res.data.data;
+      panel.innerHTML = `
+        <h3>${d.description || name} (mock)</h3>
+        ${d.formula ? `<p><b>Formula:</b> ${d.formula}</p>` : ''}
+        <pre>${escapeHTML(JSON.stringify(d, null, 2))}</pre>
+      `;
+    }
+
+    // default view on load
+    window.addEventListener('DOMContentLoaded', () => {
+      showPanel('tokenization');
+      loadDecoder();
+    });
+  </script>
+</body>
+</html>

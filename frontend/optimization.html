@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Optimization Viewer</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 16px; }
+    h1 { margin: 0 0 10px; font-size: 20px; }
+    h2 { margin: 18px 0 8px; font-size: 16px; }
+    .formula { font-style: italic; color:#555; margin: 8px 0 14px; }
+    .muted { color:#666; }
+    .section { border:1px solid #e5e7eb; border-radius:10px; padding:14px; margin: 14px 0; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#f1f5f9; border:1px solid #e2e8f0; font-size:12px; color:#334155; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 14px; }
+    th, td { border:1px solid #ddd; padding:6px; vertical-align: top; text-align: left; }
+    th { background:#fafafa; width: 220px; }
+    .array-note { font-size:12px; color:#64748b; margin: -6px 0 8px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Optimization</h1>
+  <div id="formulaTop" class="formula"></div>
+
+  <div id="content" class="muted">Loading…</div>
+
+  <div id="formulaBottom" class="formula"></div>
+
+<script>
+const ENDPOINT = "/optim";      // <-- your endpoint
+const USE_CREDENTIALS = false;  // set true if API needs cookies (and CORS allows credentials)
+
+// ---------------- helpers ----------------
+function fmt(val) {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'number') {
+    const s = String(val);
+    if (s.indexOf('.') === -1 || s.toLowerCase().includes('e')) return s;
+    return Number(val.toFixed(12)).toString();
+  }
+  if (Array.isArray(val)) return val.join(', ');
+  if (typeof val === 'object') return JSON.stringify(val);
+  return String(val);
+}
+
+function mkRow(k, v) {
+  const tr = document.createElement('tr');
+  const th = document.createElement('th'); th.textContent = k;
+  const td = document.createElement('td');
+  if (Array.isArray(v) && v.length > 24) {
+    const preview = v.slice(0, 24).join(', ') + ` … (+${v.length - 24} more)`;
+    const div = document.createElement('div');
+    div.className = 'mono truncate';
+    div.title = v.join(', ');
+    div.textContent = preview;
+    td.appendChild(div);
+  } else {
+    td.textContent = fmt(v);
+  }
+  tr.appendChild(th); tr.appendChild(td);
+  return tr;
+}
+
+function tableFromObject(obj, titleText) {
+  const wrap = document.createElement('div');
+  wrap.className = 'section';
+
+  if (titleText) {
+    const h = document.createElement('h2');
+    h.textContent = titleText;
+    wrap.appendChild(h);
+  }
+
+  const table = document.createElement('table');
+  const tbody = document.createElement('tbody');
+  Object.entries(obj).forEach(([k, v]) => tbody.appendChild(mkRow(k, v)));
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function flatten(prefix, obj, out) {
+  Object.entries(obj || {}).forEach(([k, v]) => {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      flatten(key, v, out);
+    } else {
+      out[key] = v;
+    }
+  });
+  return out;
+}
+
+// Find a metrics object anywhere (handles wrappers like {status, records:[…]})
+function looksLikeOptim(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+  return ('lr' in obj) || ('adamw' in obj) || ('grad' in obj) || ('parameters' in obj) || ('samples' in obj);
+}
+function findAllOptimObjects(root, maxDepth = 10) {
+  const found = [];
+  const seen = new WeakSet();
+  function walk(node, depth) {
+    if (!node || depth > maxDepth || typeof node !== 'object') return;
+    if (seen.has(node)) return;
+    seen.add(node);
+
+    if (looksLikeOptim(node)) found.push(node);
+
+    if (Array.isArray(node)) {
+      node.forEach(el => walk(el, depth + 1));
+    } else {
+      Object.values(node).forEach(v => walk(v, depth + 1));
+    }
+  }
+  walk(root, 0);
+  return found;
+}
+
+function renderOneOptim(obj, container, index) {
+  // Formula top/bottom handled outside once; here we render one snapshot.
+  const section = document.createElement('div');
+
+  // Overview
+  const overview = {};
+  if ('step' in obj) overview.step = obj.step;
+  if ('lr' in obj) overview.lr = obj.lr;
+  if (obj.amp && typeof obj.amp === 'object')   flatten('amp', obj.amp, overview);
+  if (obj.grad && typeof obj.grad === 'object') flatten('grad', obj.grad, overview);
+  if (obj.adamw && typeof obj.adamw === 'object') flatten('adamw', obj.adamw, overview);
+
+  section.appendChild(tableFromObject(overview, `Overview ${index > 0 ? `#${index+1}` : ''}`));
+
+  // parameters
+  if (Array.isArray(obj.parameters)) {
+    const note = document.createElement('div');
+    note.className = 'array-note';
+    note.textContent = `parameters (${obj.parameters.length} tables)`;
+    section.appendChild(note);
+
+    obj.parameters.forEach((p, i) => {
+      const o = {
+        name: p.name,
+        param_norm: p.param_norm,
+        grad_norm: p.grad_norm,
+        m_norm: p.m_norm,
+        v_norm: p.v_norm
+      };
+      section.appendChild(tableFromObject(o, `Parameter #${i+1}`));
+    });
+  }
+
+  // samples
+  if (Array.isArray(obj.samples)) {
+    const note = document.createElement('div');
+    note.className = 'array-note';
+    note.textContent = `samples (${obj.samples.length} tables)`;
+    section.appendChild(note);
+
+    obj.samples.forEach((s, i) => {
+      const o = {
+        name: s.name,
+        before_head: s.before_head,
+        after_head: s.after_head,
+        delta_head: s.delta_head,
+        update_norm: s.update_norm
+      };
+      section.appendChild(tableFromObject(o, `Sample #${i+1}`));
+    });
+  }
+
+  container.appendChild(section);
+}
+
+// ---------------- render ----------------
+async function load() {
+  const container = document.getElementById('content');
+  try {
+    const res = await fetch(ENDPOINT + (ENDPOINT.includes('?') ? '' : `?ts=${Date.now()}`), {
+      method: 'GET',
+      headers: { 'Accept': 'application/json, text/plain;q=0.9, */*;q=0.8' },
+      cache: 'no-store',
+      mode: 'cors',
+      credentials: USE_CREDENTIALS ? 'include' : 'omit'
+    });
+    if (!res.ok) {
+      container.textContent = `HTTP ${res.status} ${res.statusText}`;
+      return;
+    }
+
+    const raw = await res.text();
+    let data;
+    try { data = JSON.parse(raw); }
+    catch {
+      const cleaned = raw.replace(/^\uFEFF/, '').replace(/^\)\]\}',?\s*\n?/, '').trim();
+      data = JSON.parse(cleaned);
+    }
+
+    // Find all optimizer snapshots anywhere in the payload
+    const snapshots = findAllOptimObjects(data);
+    container.classList.remove('muted');
+    container.innerHTML = '';
+
+    // Formula (top & bottom) — use the first snapshot that has it, else fall back
+    const firstWithFormula = snapshots.find(s => typeof s.formula === 'string');
+    const formula = (firstWithFormula && firstWithFormula.formula) || (data.formula || '');
+    document.getElementById('formulaTop').textContent = formula ? `Formula: ${formula}` : '';
+    document.getElementById('formulaBottom').textContent = formula ? `Formula: ${formula}` : '';
+
+    if (!snapshots.length) {
+      container.textContent = 'No optimization objects found in response.';
+      return;
+    }
+
+    snapshots.forEach((snap, idx) => renderOneOptim(snap, container, idx));
+
+  } catch (e) {
+    container.textContent = 'Failed to load.';
+  }
+}
+
+load();
+</script>
+</body>
+</html>

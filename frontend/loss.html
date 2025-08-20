@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Loss Viewer</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 16px; }
+    h2 { margin: 0 0 8px; }
+    .formula { font-style: italic; color:#555; margin: 12px 0; }
+    table { border-collapse: collapse; margin-bottom: 20px; width: 100%; }
+    th, td { border:1px solid #ddd; padding:6px; text-align:left; vertical-align: top; }
+    th { background:#fafafa; width: 220px; }
+    #out { min-height: 32px; color:#666; }
+  </style>
+</head>
+<body>
+  <h2>Loss Metrics</h2>
+  <div id="out">Loading…</div>
+  <div id="formula" class="formula"></div>
+
+<script>
+const ENDPOINT = "/loss";        // change if needed
+const USE_CREDENTIALS = false;   // set true if your API needs cookies (and CORS allows credentials)
+
+// ---- robust metrics finder (recursive) ----
+function looksLikeMetrics(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+  return ('loss' in obj) || ('hardest_tokens' in obj) || ('step' in obj);
+}
+function findMetrics(root, maxDepth = 10) {
+  const seen = new WeakSet();
+  function walk(node, depth) {
+    if (!node || depth > maxDepth || typeof node !== 'object') return null;
+    if (seen.has(node)) return null;
+    seen.add(node);
+
+    // If this object looks like the metrics we want, return it
+    if (looksLikeMetrics(node)) return node;
+
+    // If it's an array, try each element
+    if (Array.isArray(node)) {
+      for (const el of node) {
+        const hit = walk(el, depth + 1);
+        if (hit) return hit;
+      }
+      return null;
+    }
+
+    // Otherwise walk its values
+    for (const key of Object.keys(node)) {
+      const hit = walk(node[key], depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  return walk(root, 0);
+}
+
+// ---- rendering helpers ----
+function mkRow(key, val){
+  const tr = document.createElement('tr');
+  const th = document.createElement('th'); th.textContent = key;
+  const td = document.createElement('td');
+  if (Array.isArray(val)) {
+    td.textContent = val.join(', ');
+  } else {
+    td.textContent = (val === null || val === undefined) ? '' : String(val);
+  }
+  tr.appendChild(th); tr.appendChild(td);
+  return tr;
+}
+function renderStats(obj){
+  const table = document.createElement('table');
+  const tbody = document.createElement('tbody');
+
+  tbody.appendChild(mkRow('Step', obj.step));
+  tbody.appendChild(mkRow('Loss', obj.loss));
+  tbody.appendChild(mkRow('PPL', obj.ppl));
+  tbody.appendChild(mkRow('PPL Overflow', obj.ppl_overflow));
+  tbody.appendChild(mkRow('Batch Size', obj.batch_size));
+  tbody.appendChild(mkRow('Seq Len', obj.seq_len));
+  tbody.appendChild(mkRow('Vocab Size', obj.vocab_size));
+  tbody.appendChild(mkRow('Ignore Index', obj.ignore_index));
+  tbody.appendChild(mkRow('Label Smoothing', obj.label_smoothing));
+  tbody.appendChild(mkRow('Per-sequence Loss', obj.per_seq_loss));
+
+  table.appendChild(tbody);
+  return table;
+}
+function renderHardestTokens(arr){
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  thead.innerHTML = `
+    <tr>
+      <th>b</th>
+      <th>t</th>
+      <th>Target ID</th>
+      <th>Target Token</th>
+      <th>Pred ID</th>
+      <th>Pred Token</th>
+      <th>NLL</th>
+    </tr>`;
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  (arr || []).forEach(tok => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${tok?.b ?? ''}</td>
+      <td>${tok?.t ?? ''}</td>
+      <td>${tok?.target_id ?? ''}</td>
+      <td>${tok?.target_token ?? ''}</td>
+      <td>${tok?.pred_id ?? ''}</td>
+      <td>${tok?.pred_token ?? ''}</td>
+      <td>${tok?.nll ?? ''}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  return table;
+}
+
+async function load(){
+  const out = document.getElementById('out');
+  try {
+    const res = await fetch(ENDPOINT + (ENDPOINT.includes('?') ? '' : `?ts=${Date.now()}`), {
+      method: 'GET',
+      headers: { 'Accept': 'application/json, text/plain;q=0.9, */*;q=0.8' },
+      cache: 'no-store',
+      mode: 'cors',
+      credentials: USE_CREDENTIALS ? 'include' : 'omit'
+    });
+    if (!res.ok) {
+      out.textContent = `HTTP ${res.status} ${res.statusText}`;
+      return;
+    }
+
+    const text = await res.text();
+    let payload;
+    try { payload = JSON.parse(text); }
+    catch {
+      const cleaned = text.replace(/^\uFEFF/, '').replace(/^\)\]\}',?\s*\n?/, '').trim();
+      payload = JSON.parse(cleaned);
+    }
+
+    // Find the metrics object anywhere in the payload
+    const obj = findMetrics(payload);
+    if (!obj) {
+      out.textContent = 'Could not find metrics object in response.';
+      return;
+    }
+
+    out.style.color = '#000';
+    out.innerHTML = '';
+
+    const h3a = document.createElement('h3'); h3a.textContent = 'Overall Stats';
+    out.appendChild(h3a);
+    out.appendChild(renderStats(obj));
+
+    const h3b = document.createElement('h3'); h3b.textContent = 'Hardest Tokens';
+    out.appendChild(h3b);
+    out.appendChild(renderHardestTokens(obj.hardest_tokens));
+
+    const f = document.getElementById('formula');
+    f.textContent = 'Formula: ' + (obj.formula || 'NLL = -log softmax(logits)[target]; loss = mean over valid tokens; ppl = exp(loss)');
+  } catch (e) {
+    out.textContent = 'Failed to load.';
+  }
+}
+
+load();
+</script>
+</body>
+</html>
