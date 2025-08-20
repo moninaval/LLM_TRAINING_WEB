@@ -296,3 +296,6 @@ def read_optim():
     with open(path, "r") as f:
         data = json.load(f)
     return {"status": "ok", "data": data, "file": path, "updated_unix": os.path.getmtime(path)}
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))  # use Render’s port
+    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
