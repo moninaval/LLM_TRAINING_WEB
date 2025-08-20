@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List, Tuple, Optional
 import os, json, glob, re, time
 from fastapi.responses import FileResponse
+import uvicorn
 
 app = FastAPI()
 
