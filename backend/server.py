@@ -18,7 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-FRONTEND_DIR = "/var/src/AI_LEARNING/AI_PROJECT/LLM_TRAINING/frontend"
+FRONTEND_DIR = "../frontend"
 
 # sanity log at startup
 if not os.path.exists(os.path.join(FRONTEND_DIR, "index.html")):
