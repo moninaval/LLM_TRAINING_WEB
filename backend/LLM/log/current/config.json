@@ -10,7 +10,10 @@
   "norm_type": "layernorm",
   "ffn_type": "gelu",
   "qkv_proj": "fused",
-  "tie_weights": true
+  "tie_weights": true,
+  "batch_size": 2,
+  "lr": 3e-4,
+  "schedule": "constant"
 
 }
 

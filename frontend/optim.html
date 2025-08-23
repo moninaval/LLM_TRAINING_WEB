@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LLM Optimization Explorer 🎨</title>
+  <!-- KaTeX for rendering math formulas -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" xintegrity="sha384-n8MVd4RsNIU0KOVEMcADelegTRmortBCqcZogxmaDKszYLiLectureo7CortfNEackfEVgNiEgXgl/6gUgdIMsvUiw" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" xintegrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUbKyIyUH" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" xintegrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      background-color: #f8fafc;
+      color: #1e2b3b;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 24px auto;
+      padding: 0 24px;
+    }
+    h1, h2, h3, h4 {
+      color: #0f172a;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    h2 { margin: 24px 0 10px; font-size: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;}
+    h3 { font-size: 16px; margin: 18px 0 8px; }
+    h4 { font-size: 14px; margin: 10px 0 5px; }
+
+    .header-intro {
+        background-color: #fff; border:1px solid #e2e8f0; border-radius:12px;
+        padding: 20px; margin-bottom: 24px; line-height: 1.6;
+    }
+    .muted { color:#64748b; text-align: center; padding: 40px; }
+    
+    /* --- Main Two-Column Layout --- */
+    .main-layout {
+        display: grid;
+        grid-template-columns: 350px 1fr;
+        gap: 24px;
+        align-items: flex-start;
+    }
+    .left-column { display: flex; flex-direction: column; gap: 24px; }
+    .right-column { display: flex; flex-direction: column; gap: 24px; }
+
+    .info-box {
+        background-color: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px;
+    }
+    
+    table { border-collapse: collapse; width: 100%; margin-bottom: 14px; }
+    th, td { border:1px solid #e2e8f0; padding: 10px; vertical-align: middle; text-align: left; }
+    th { background:#f8fafc; width: 250px; font-weight: 500; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background-color: #f1f5f9; padding: 2px 4px; border-radius: 4px; font-size: 0.9em; }
+    
+    tr.param-name-row th, tr.param-name-row td {
+        background-color: #e0f2fe; /* Light blue background */
+        color: #0c4a6e;
+        font-weight: 600;
+    }
+    tr.param-name-row .mono {
+        background-color: #bae6fd;
+    }
+
+    .tooltip { position: relative; display: inline-block; border-bottom: 1px dotted #64748b; cursor: help; }
+    .tooltip .tooltiptext { visibility: hidden; width: 280px; background-color: #1e293b; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -140px; opacity: 0; transition: opacity 0.3s; font-weight: normal; font-size: 13px; }
+    .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+    
+    .blocks-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .decoder-block {
+      padding: 10px 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background-color: #fff;
+      cursor: pointer;
+      font-weight: 500;
+      text-align: center;
+      transition: all 0.2s ease-in-out;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .decoder-block:hover { background-color: #f1f5f9; transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .decoder-block.active {
+      background-color: #2563eb;
+      color: #fff;
+      border-color: #1d4ed8;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    #parameter-details-container {
+        margin-top: 16px;
+        min-height: 100px;
+    }
+
+    .param-explanation {
+        font-size: 13px;
+        color: #475569;
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-top: none;
+        padding: 10px 12px;
+        border-radius: 0 0 8px 8px;
+        margin-top: -15px;
+        margin-bottom: 14px;
+        line-height: 1.5;
+    }
+    .param-explanation strong { color: #1e293b; }
+
+    /* --- Styles for Formula Box --- */
+    .formula-display {
+        text-align: center;
+        font-size: 1.1em;
+        padding: 10px;
+        background-color: #f1f5f9;
+        border-radius: 8px;
+        word-break: break-all;
+    }
+    .formula-variables {
+        font-size: 13px;
+        list-style-type: none;
+        padding-left: 0;
+    }
+    .formula-variables li {
+        margin-bottom: 4px;
+    }
+    .formula-variables code {
+        display: inline-block;
+        width: 60px;
+        text-align: right;
+        margin-right: 8px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background-color: #f1f5f9;
+        padding: 1px 4px;
+        border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>🎨 LLM Optimization Explorer</h1>
+  <div class="header-intro">
+    <p>This page provides a live snapshot of an LLM's <strong>optimization process</strong>. The layout separates general training metrics (left) from the detailed, trainable parameters of the model (right). Click on a block to inspect the optimizer state for the parameters within that component.</p>
+  </div>
+
+  <div id="content" class="muted">Loading Optimizer Data…</div>
+</div>
+
+<script>
+const ENDPOINT = "/optim";
+const USE_CREDENTIALS = false;
+
+const metricDocs = {
+  'step': { name: 'Training Step', desc: 'The current iteration number in the training process.' },
+  'lr': { name: 'Learning Rate', desc: 'Controls the size of the parameter updates.' },
+  'grad.scale': { name: 'AMP: Loss Scale', desc: 'Used in Automatic Mixed Precision (AMP) to prevent small gradients from becoming zero.' },
+  'grad.found_inf': { name: 'AMP: Inf/NaN Found', desc: 'Indicates if an invalid number was detected in the gradients. The step is usually skipped if true.' },
+  'grad.norm_total': { name: 'Total Gradient Norm', desc: 'The overall magnitude of all gradients combined. A key indicator of training stability.' },
+  'adamw.beta1': { name: 'AdamW: Beta1', desc: 'The exponential decay rate for the first moment estimate (m).' },
+  'adamw.beta2': { name: 'AdamW: Beta2', desc: 'The exponential decay rate for the second moment estimate (v).' },
+  'param_norm': { name: 'Parameter Norm', desc: 'The magnitude (L2 norm) of this specific parameter.'},
+  'grad_norm': { name: 'Gradient Norm', desc: 'The magnitude (L2 norm) of the gradient for this specific parameter.'},
+  'm_norm': { name: '1st Moment Norm (m)', desc: 'The magnitude (L2 norm) of the AdamW first moment vector.'},
+  'v_norm': { name: '2nd Moment Norm (v)', desc: 'The magnitude (L2 norm) of the AdamW second moment vector.'},
+  'update_norm': { name: 'Update Norm', desc: 'The magnitude of the actual change applied to the parameter in this step.'}
+};
+
+// --- Helper functions ---
+function fmt(val) { if (val === null || val === undefined) return ''; if (typeof val === 'number') { const s = String(val); if (s.indexOf('.') === -1 || s.toLowerCase().includes('e')) return s; return Number(val.toFixed(8)).toString(); } if (Array.isArray(val)) return val.join(', '); if (typeof val === 'object') return JSON.stringify(val); return String(val); }
+function createTooltip(key) { const doc = metricDocs[key]; if (!doc) return document.createTextNode(key); const span = document.createElement('span'); span.className = 'tooltip'; span.textContent = doc.name; const tooltipText = document.createElement('span'); tooltipText.className = 'tooltiptext'; tooltipText.textContent = doc.desc; span.appendChild(tooltipText); return span; }
+
+function getParameterExplanation(name) {
+    if (!name) return '';
+    const explanations = [];
+    if (name.includes('token_embedding')) explanations.push('<strong>Token Embedding:</strong> The main lookup table that converts input token IDs into vectors.');
+    if (name.includes('final_norm')) explanations.push('<strong>Final LayerNorm:</strong> Stabilizes the final output of the transformer stack before the prediction head.');
+    if (name.includes('attn.c_attn') || name.includes('attention.wqkv') || name.includes('attn.qkv')) explanations.push('<strong>QKV Projection:</strong> This is the key matrix in the self-attention layer. It creates the Query, Key, and Value vectors all at once.');
+    if (name.includes('attn.c_proj') || name.includes('attention.wo') || name.includes('attn.out_proj')) explanations.push('<strong>Attention Output Projection:</strong> This matrix combines the results from the different attention heads back into a single vector.');
+    if (name.includes('mlp.c_fc') || name.includes('feed_forward.w1') || name.includes('ffn.linear1')) explanations.push('<strong>MLP Up-Projection:</strong> The first, larger linear layer within the feed-forward network (MLP). It expands the dimensionality.');
+    if (name.includes('mlp.c_proj') || name.includes('feed_forward.w2') || name.includes('ffn.linear2')) explanations.push('<strong>MLP Down-Projection:</strong> The second linear layer in the MLP. It projects the expanded representation back down to the model\'s dimension.');
+    if (name.includes('feed_forward.w3')) explanations.push('<strong>MLP Gating Projection:</strong> Part of a SwiGLU activation, this is the gate that controls information flow in the MLP.');
+    if (name.includes('ln1') || name.includes('ln_1') || name.includes('attn_norm') || name.includes('attention_norm')) explanations.push('<strong>Pre-Attention LayerNorm:</strong> Normalizes the input to the self-attention layer.');
+    if (name.includes('ln2') || name.includes('ln_2') || name.includes('mlp_norm') || name.includes('ffn_norm')) explanations.push('<strong>Pre-MLP LayerNorm:</strong> Normalizes the input to the feed-forward network (MLP).');
+    return explanations.join('<br>');
+}
+
+// --- UPDATED --- Helper function for formula variable explanations is now more robust
+function getFormulaExplanations(formulaString) {
+    const variableMap = {
+        '\\theta_t': 'New Parameters',
+        '\\theta_{t-1}': 'Old Parameters',
+        '\\theta': 'Parameters',
+        '\\eta': 'Learning Rate',
+        'lr': 'Learning Rate',
+        'g_t': 'Gradient',
+        'g': 'Gradient',
+        'm_t': 'Momentum',
+        'm': 'Momentum',
+        'v_t': 'Sq. Gradient',
+        'v': 'Sq. Gradient',
+        '\\hat{m}_t': 'Corrected Momentum',
+        'm̂': 'Corrected Momentum',
+        '\\hat{v}_t': 'Corrected Sq. Grad.',
+        'v̂': 'Corrected Sq. Grad.',
+        '\\epsilon': 'Stabilizer',
+        'ε': 'Stabilizer',
+        '\\beta_1': 'Momentum Decay',
+        'β1': 'Momentum Decay',
+        '\\beta_2': 'Sq. Grad. Decay',
+        'β2': 'Sq. Grad. Decay',
+        'wd': 'Weight Decay'
+    };
+    // Use a regex to avoid partial matches (e.g., 'v' in 'var')
+    const foundVariables = Object.keys(variableMap).filter(v => new RegExp(`(^|[^a-zA-Z0-9])` + v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + `($|[^a-zA-Z0-9])`).test(formulaString));
+    if (foundVariables.length === 0) return '';
+
+    let html = '<h4>Variables</h4><ul class="formula-variables">';
+    // Use a Set to ensure unique explanations are shown
+    const displayedExplanations = new Set();
+    foundVariables.forEach(v => {
+        const explanation = variableMap[v];
+        if (!displayedExplanations.has(explanation)) {
+             // Display the primary symbol (e.g., Greek letter) if available
+            const symbol = Object.keys(variableMap).find(key => variableMap[key] === explanation && key.startsWith('\\')) || v;
+            html += `<li><code>${symbol}</code>: ${explanation}</li>`;
+            displayedExplanations.add(explanation);
+        }
+    });
+    html += '</ul>';
+    return html;
+}
+
+function mkRow(k, v, isParamName = false) {
+    const tr = document.createElement('tr');
+    if (isParamName) tr.className = 'param-name-row';
+    const th = document.createElement('th');
+    th.appendChild(k === 'name' ? document.createTextNode('Parameter Name') : createTooltip(k));
+    const td = document.createElement('td');
+    td.className = 'mono';
+    td.textContent = fmt(v);
+    tr.appendChild(th); tr.appendChild(td);
+    return tr;
+}
+
+function tableFromObject(obj) {
+    const wrapper = document.createElement('div');
+    const table = document.createElement('table');
+    const tbody = document.createElement('tbody');
+    if (obj.name) tbody.appendChild(mkRow('name', obj.name, true));
+    Object.entries(obj).forEach(([k, v]) => {
+        if (k !== 'name') tbody.appendChild(mkRow(k, v));
+    });
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    const explanationText = getParameterExplanation(obj.name);
+    if (explanationText) {
+        const explanationDiv = document.createElement('div');
+        explanationDiv.className = 'param-explanation';
+        explanationDiv.innerHTML = explanationText;
+        wrapper.appendChild(explanationDiv);
+    }
+    return wrapper;
+}
+
+function flatten(prefix, obj, out) { Object.entries(obj || {}).forEach(([k, v]) => { const key = prefix ? `${prefix}.${k}` : k; if (v && typeof v === 'object' && !Array.isArray(v)) { flatten(key, v, out); } else { out[key] = v; } }); return out; }
+function looksLikeOptim(obj) { if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false; return ('lr' in obj) || ('adamw' in obj) || ('grad' in obj) || ('parameters' in obj); }
+function findAllOptimObjects(root, maxDepth = 10) { const found = []; const seen = new WeakSet(); function walk(node, depth) { if (!node || depth > maxDepth || typeof node !== 'object') return; if (seen.has(node)) return; seen.add(node); if (looksLikeOptim(node)) found.push(node); if (Array.isArray(node)) { node.forEach(el => walk(el, depth + 1)); } else { Object.values(node).forEach(v => walk(v, depth + 1)); } } walk(root, 0); return found; }
+
+// --- Main rendering function for the new layout ---
+function renderOneOptim(obj, container) {
+    container.innerHTML = ''; 
+    const mainLayout = document.createElement('div');
+    mainLayout.className = 'main-layout';
+    const leftColumn = document.createElement('div');
+    leftColumn.className = 'left-column';
+    const rightColumn = document.createElement('div');
+    rightColumn.className = 'right-column';
+    mainLayout.appendChild(leftColumn);
+    mainLayout.appendChild(rightColumn);
+    container.appendChild(mainLayout);
+
+    const overviewBox = document.createElement('div');
+    overviewBox.className = 'info-box';
+    overviewBox.innerHTML = '<h2>Optimizer Stats</h2>';
+    leftColumn.appendChild(overviewBox);
+
+    // --- Add Formula Box if formula exists in data ---
+    if (obj.formula) {
+        const formulaBox = document.createElement('div');
+        formulaBox.className = 'info-box';
+        formulaBox.innerHTML = '<h2>Update Rule</h2>';
+        
+        const formulaDisplay = document.createElement('div');
+        formulaDisplay.className = 'formula-display';
+        // For non-LaTeX formulas, wrap in a code block for better formatting
+        formulaDisplay.innerHTML = obj.formula.includes('\\') ? obj.formula : `<code>${obj.formula}</code>`;
+        formulaBox.appendChild(formulaDisplay);
+        
+        const variableExplanations = document.createElement('div');
+        variableExplanations.innerHTML = getFormulaExplanations(obj.formula);
+        formulaBox.appendChild(variableExplanations);
+        
+        // Insert formula box before the glossary
+        leftColumn.appendChild(formulaBox);
+        if (obj.formula.includes('\\')) {
+            renderMathInElement(formulaBox);
+        }
+    }
+
+    const glossaryBox = document.createElement('div');
+    glossaryBox.className = 'info-box';
+    glossaryBox.innerHTML = `
+        <h2>📘 Glossary</h2>
+        <dl>
+            <dt><strong>Optimization</strong></dt><dd>Adjusting model parameters to minimize the loss function.</dd>
+            <dt><strong>Gradient</strong></dt><dd>A vector indicating the direction of steepest ascent for the loss.</dd>
+            <dt><strong>Learning Rate</strong></dt><dd>Controls the step size during optimization.</dd>
+            <dt><strong>AdamW</strong></dt><dd>An adaptive optimization algorithm that maintains an internal state (m and v) for each parameter.</dd>
+        </dl>`;
+    leftColumn.appendChild(glossaryBox);
+
+    const overview_general = { ...(obj.step && {step: obj.step}), ...(obj.lr && {lr: obj.lr}) };
+    const overview_grad = flatten('grad', {...obj.amp, ...obj.grad}, {});
+    const overview_adamw = flatten('adamw', obj.adamw, {});
+    
+    overviewBox.appendChild(tableFromObject(overview_general));
+    if (Object.keys(overview_grad).length > 0) overviewBox.appendChild(tableFromObject(overview_grad));
+    if (Object.keys(overview_adamw).length > 0) overviewBox.appendChild(tableFromObject(overview_adamw));
+
+    const blocksBox = document.createElement('div');
+    blocksBox.className = 'info-box';
+    blocksBox.innerHTML = '<h2>Trainable Parameters</h2><p>Click a block to inspect its parameters below.</p>';
+    rightColumn.appendChild(blocksBox);
+    
+    const blocksGrid = document.createElement('div');
+    blocksGrid.className = 'blocks-grid';
+    blocksBox.appendChild(blocksGrid);
+
+    const detailsContainer = document.createElement('div');
+    detailsContainer.id = 'parameter-details-container';
+    blocksBox.appendChild(detailsContainer);
+
+    const groupedParams = new Map();
+    const nonBlockParams = [];
+    const blockNameRegex = /transformer\.blocks\.(\d+)\./;
+
+    (obj.parameters || []).forEach(p => {
+        const match = p.name ? p.name.match(blockNameRegex) : null;
+        if (match) {
+            const blockId = match[1];
+            if (!groupedParams.has(blockId)) groupedParams.set(blockId, []);
+            groupedParams.get(blockId).push(p);
+        } else {
+            nonBlockParams.push(p);
+        }
+    });
+    if (nonBlockParams.length > 0) groupedParams.set('general', nonBlockParams);
+
+    const sortedBlockIds = Array.from(groupedParams.keys()).sort((a, b) => {
+        if (a === 'general') return -1; if (b === 'general') return 1;
+        return parseInt(a, 10) - parseInt(b, 10);
+    });
+
+    sortedBlockIds.forEach(blockId => {
+        const blockDiv = document.createElement('div');
+        blockDiv.className = 'decoder-block';
+        blockDiv.textContent = blockId === 'general' ? 'General' : `Decoder Block ${blockId}`;
+        blockDiv.dataset.blockId = blockId;
+        blocksGrid.appendChild(blockDiv);
+    });
+
+    blocksGrid.addEventListener('click', (e) => {
+        const targetBlock = e.target.closest('.decoder-block');
+        if (!targetBlock) return;
+        blocksGrid.querySelectorAll('.decoder-block').forEach(b => b.classList.remove('active'));
+        targetBlock.classList.add('active');
+        detailsContainer.innerHTML = '';
+        const blockId = targetBlock.dataset.blockId;
+        const paramsToRender = groupedParams.get(blockId);
+        paramsToRender.forEach(p => {
+            const o = { name: p.name, param_norm: p.param_norm, grad_norm: p.grad_norm, m_norm: p.m_norm, v_norm: p.v_norm };
+            detailsContainer.appendChild(tableFromObject(o));
+        });
+    });
+
+    if (blocksGrid.firstChild) {
+        blocksGrid.firstChild.click();
+    }
+}
+
+// ---------------- Main Load Function ----------------
+async function load() {
+    const container = document.getElementById('content');
+    try {
+        const res = await fetch(ENDPOINT + `?ts=${Date.now()}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        const raw = await res.text();
+        let data;
+        try { data = JSON.parse(raw); } 
+        catch {
+            const cleaned = raw.replace(/^\uFEFF/, '').replace(/^\)\]\}',?\s*\n?/, '').trim();
+            data = JSON.parse(cleaned);
+        }
+        const snapshots = findAllOptimObjects(data);
+        if (!snapshots.length) throw new Error('No optimization objects found in response.');
+        renderOneOptim(snapshots[0], container);
+    } catch (e) {
+        console.error("Failed to load or render optimization data:", e);
+        container.textContent = `Failed to load or parse data from ${ENDPOINT}. Check the browser console (F12) for more details.`;
+        container.classList.add('error');
+    }
+}
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LLM: Diagram + Per-Item Config Edit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#0b1020; --fg:#e6eaf2; --muted:#9aa4b2; --stroke:#27314a; --arrow:#86a2ff;
+    --tok:#2a3b67; --embed:#3a2f6f; --ln:#32406f; --qkv:#215b72; --head:#1e6b74;
+    --concat:#3b2f63; --wo:#4a2a3a; --res:#644b1f; --ffn:#205c38; --final:#3b2d52;
+    --lm:#5a3350; --loss:#5b2b2b; --optim:#2e5b2b; --panel:#121935; --btn:#1f2a48; --btnh:#233055;
+  }
+  html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto}
+  header{display:flex;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--stroke)}
+  h1{font-size:16px;margin:0}
+  .pill{margin-left:auto;border:1px solid var(--stroke);border-radius:999px;padding:4px 10px;color:var(--muted);font-size:12px}
+
+  .wrap{display:flex;align-items:stretch}
+  .left{flex:1;min-width:0}
+  .right{width:360px;border-left:1px solid var(--stroke);background:var(--panel);padding:12px;position:sticky;top:0;max-height:100vh;overflow:auto}
+
+  svg{width:100%;height:auto;display:block;border-top:1px solid var(--stroke)}
+  .box{fill:#1a2545;stroke:var(--stroke);stroke-width:1}
+  .b-token{fill:var(--tok)} .b-embed{fill:var(--embed)}
+  .b-ln{fill:var(--ln)} .b-qkv{fill:var(--qkv)} .b-head{fill:var(--head)}
+  .b-concat{fill:var(--concat)} .b-wo{fill:var(--wo)} .b-res{fill:var(--res)} .b-ffn{fill:var(--ffn)}
+  .b-final{fill:var(--final)} .b-lm{fill:var(--lm)} .b-loss{fill:var(--loss)} .b-optim{fill:var(--optim)}
+  .label{fill:#e6ecff;font-size:12px;font-weight:600}
+  .sublabel{fill:#bcd;font-size:11px}
+  .layerTitle{fill:#a7b8d8;font-size:12px}
+  .arrow{stroke:var(--arrow);stroke-width:1.6;marker-end:url(#ah)}
+  .gridnum{fill:#dff;font-size:10px;text-anchor:middle;dominant-baseline:middle}
+  .err{color:#ff9b9b;margin:8px 12px}
+  .clickable{cursor:pointer}
+  .clickable:hover .box{filter:brightness(1.1)}
+  .clickable:focus {outline:2px solid #86a2ff; outline-offset:2px}
+
+  /* Right panel */
+  .panelTitle{font-size:14px;margin:0 0 8px 0}
+  .hint{color:var(--muted);font-size:12px;margin:0 0 8px 0}
+  .kv{display:grid;grid-template-columns: 1fr; gap:8px}
+  .kv-group-title { font-weight: bold; margin-top: 10px; margin-bottom: 5px; font-size: 13px; color: #a7b8d8;}
+  .rowKV{display:grid;grid-template-columns: 1fr 1fr;align-items:center;gap:8px;border-bottom:1px dashed #223255;padding:6px 0}
+  .rowKV label{font-size:12px;color:#c8d2ea;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rowKV input[type="text"], .rowKV input[type="number"]{
+    width:100%;background:#0c1330;border:1px solid #263156;color:#e6ecff;border-radius:8px;padding:6px 8px;
+  }
+  .rowKV input[readonly]{opacity:0.7}
+  .rowKV input[type="checkbox"]{transform:scale(1.1)}
+  .rowKV button{background:var(--btn);border:1px solid #2a365b;border-radius:8px;padding:6px 8px;color:#e6ecff; cursor: pointer;}
+  .rowKV button:hover{background:var(--btnh)}
+  .okFlash{box-shadow:0 0 0 2px #2d7a46 inset}
+  .badFlash{box-shadow:0 0 0 2px #b44 inset}
+
+  .btn-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .btn-group button {
+    flex: 1;
+    padding: 10px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tokenization → Embeddings → Decoder(s) → Output → Loss → Optim</h1>
+  <span id="meta" class="pill">loading…</span>
+</header>
+
+<div class="wrap">
+  <div class="left">
+    <div id="err" class="err"></div>
+    <div id="canvas"></div>
+  </div>
+
+  <aside class="right">
+    <h2 class="panelTitle">Model configuration</h2>
+    <p class="hint">Editable: numbers & booleans. Strings are read-only.</p>
+    <div id="cfgForm" class="kv"></div>
+    <div style="margin-top: 12px; text-align: center;">
+      <button id="saveAllBtn" style="width: 100%; padding: 10px; background: var(--btn); border: 1px solid #2a365b; border-radius: 8px; color: #e6ecff; cursor: pointer;">Save All</button>
+    </div>
+    
+    <div style="margin-top: 20px;">
+      <h3 class="panelTitle">Training</h3>
+      <div class="kv">
+        <div class="rowKV">
+          <label for="stepsInput">Steps</label>
+          <input type="number" id="stepsInput" value="100" min="1" />
+        </div>
+      </div>
+      <div class="btn-group">
+        <button id="startTrainingBtn">Start Training</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+// ===== Internal endpoints (kept internal) =====
+const CONFIG_ENDPOINT = "/config";   // GET
+const CONFIG_SAVE_ENDPOINT = "/config";   // POST
+const START_TRAINING_ENDPOINT = "/start_training"; // POST
+
+// ===== Routes (click targets) =====
+const ROUTES = {
+  tokenization: 'tokenization.html',
+  embeddings: 'embeddings.html',
+  decoderPattern: 'decoder_layer_{i}.html',
+  ffnPattern: 'FFN.html',
+  output: 'output.html',
+  loss: 'loss.html',
+  optim: 'optim.html'
+};
+
+// ===== Utils =====
+function cleanJSON(t){
+  t = (t||'').replace(/^\uFEFF/, '').trim();
+  t = t.replace(/^\)\]\}',?\s*/, '');
+  t = t.replace(/^\s*\/\/.*$/gm,'').replace(/\/\*[\s\S]*?\*\//g,'');
+  t = t.replace(/,\s*([}\]])/g,'$1');
+  return t;
+}
+function unwrapConfigPayload(raw){
+  if (!raw || typeof raw !== 'object') return raw;
+  if (raw.data && typeof raw.data === 'object') return raw.data;
+  if (raw.config && typeof raw.config === 'object') return raw.config;
+  return raw;
+}
+function fmt(n){ return new Intl.NumberFormat().format(n); }
+
+function deepFindFirstKey(obj, names){
+  const targets = names.map(n=>n.toLowerCase());
+  const stack=[obj]; const paths=[[]];
+  while(stack.length){
+    const o = stack.pop(), p = paths.pop();
+    if(o && typeof o==='object'){
+      for(const k in o){
+        const v = o[k], kl=k.toLowerCase();
+        if(targets.includes(kl)) return {value:v, path:[...p,k].join('.')};
+        if(v && typeof v==='object'){ stack.push(v); paths.push([...p,k]); }
+      }
+    }
+  }
+  return null;
+}
+const toNum = v => (v===0||v==="0")?0 : (v==null||v==="")?NaN : (n=Number(String(v).trim?.() ?? v), Number.isFinite(n)?n:NaN);
+const deepNum = (cfg, keys, fb)=>{ const h=deepFindFirstKey(cfg,keys); if(!h) return {v:fb}; const n=toNum(h.value); return Number.isFinite(n)?{v:n}:{v:fb}; };
+const deepBool=(cfg,keys,fb=false)=>{const h=deepFindFirstKey(cfg,keys); if(!h) return {v:fb}; const x=h.value; return {v:(typeof x==='string')?/^(true|1|yes)$/i.test(x.trim()):!!x};};
+const deepStr=(cfg,keys,fb='')=>{ const h=deepFindFirstKey(cfg,keys); return {v:h?String(h.value):fb}; };
+
+function normalize(cfg){
+  const L   = Math.max(1, Math.floor(deepNum(cfg,['num_layers','n_layers','layers','num_decoder_layers'],4).v));
+  const H   = Math.max(1, Math.floor(deepNum(cfg,['num_heads','n_heads','heads','num_attention_heads'],8).v));
+  const DM  = Math.max(1, Math.floor(deepNum(cfg,['hidden_size','d_model','model_dim'],256).v));
+  const DFF = Math.max(1, Math.floor(deepNum(cfg,['intermediate_size','ffn_hidden_size','mlp_dim','d_ff'], Math.max(4*DM,DM)).v));
+  const VOC = Math.max(1, Math.floor(deepNum(cfg,['vocab_size','vocabulary_size','vocab','n_vocab'],50257).v));
+  const rope= !!deepBool(cfg,['use_rotary','rope','rotary_pos_emb'],false).v;
+  const ropeDim = (n=>Number.isFinite(n)?Math.floor(n):null)(deepNum(cfg,['rotary_dim','rope_dim'],NaN).v);
+  const ffnType = deepStr(cfg,['ffn_type','activation','mlp_activation'],'gelu').v;
+  const name = deepStr(cfg,['model_name','name'],'model').v;
+  const dHead = Math.max(1, Math.floor(DM / Math.max(1,H)));
+  return {L,H,DM,DFF,VOC,rope,ropeDim,ffnType,name,dHead};
+}
+
+// ===== Diagram =====
+const NS='http://www.w3.org/2000/svg';
+const gEl = t => document.createElementNS(NS,t);
+function box(parent,x,y,w,h,cls,main,sub){
+  const g = gEl('g'); g.setAttribute('transform', `translate(${x},${y})`);
+  const r = gEl('rect'); r.setAttribute('x',0); r.setAttribute('y',0);
+  r.setAttribute('width',w); r.setAttribute('height',h); r.setAttribute('rx',10); r.setAttribute('ry',10);
+  r.setAttribute('class','box '+cls); g.appendChild(r);
+  const t = gEl('text'); t.setAttribute('x',10); t.setAttribute('y',20); t.setAttribute('class','label'); t.textContent = main; g.appendChild(t);
+  if (sub){ const s = gEl('text'); s.setAttribute('x',10); s.setAttribute('y',38); s.setAttribute('class','sublabel'); s.textContent=sub; g.appendChild(s); }
+  (parent||document.querySelector('svg')).appendChild(g); return {x,y,w,h,g};
+}
+function arrow(parent,x1,y1,x2,y2){ const p=gEl('path'); p.setAttribute('d',`M ${x1} ${y1} L ${x2} ${y2}`); p.setAttribute('class','arrow'); (parent||document.querySelector('svg')).appendChild(p); }
+function makeClickable(group, title, href, stopBubble=false){
+  group.classList.add('clickable'); group.setAttribute('role','link'); group.setAttribute('tabindex','0'); group.setAttribute('aria-label', title);
+  const goTo=(e)=>{ if(stopBubble && e) e.stopPropagation(); window.location.assign(href); };
+  group.addEventListener('click', goTo);
+  group.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); goTo(e); }});
+}
+function toLayerHref(i){ return new URL(ROUTES.decoderPattern.replace('{i}', String(i)), window.location.href).toString(); }
+function toFfnHref(i){ return new URL(ROUTES.ffnPattern.replace('{i}', String(i)), window.location.href).toString(); }
+
+function renderDiagram(cfg){
+  const {L,H,DM,DFF,VOC,rope,ropeDim,ffnType,name,dHead} = normalize(cfg);
+  document.getElementById('meta').textContent =
+    `${name} • layers=${L} • heads=${H} • d_model=${DM} • d_ff=${DFF} • vocab=${fmt(VOC)}${rope?` • RoPE(d=${ropeDim??'?'})`:''}`;
+
+  const left = document.querySelector('.left');
+  const avail = left.clientWidth || window.innerWidth;
+  const W = Math.min(1700, Math.max(1000, avail - 24));
+  const layerH = 180, vgap = 30, headW = 240;
+  const totalH = 160 + L*(layerH + vgap);
+  const svg = gEl('svg'); svg.setAttribute('width', W); svg.setAttribute('height', totalH);
+
+  // Arrowhead marker
+  const defs = gEl('defs'); const m = gEl('marker');
+  m.setAttribute('id','ah'); m.setAttribute('viewBox','0 0 10 10'); m.setAttribute('refX','10'); m.setAttribute('refY','5');
+  m.setAttribute('markerWidth','8'); m.setAttribute('markerHeight','6'); m.setAttribute('orient','auto-start-reverse');
+  const tri = gEl('path'); tri.setAttribute('d','M 0 0 L 10 5 L 0 10 z'); tri.setAttribute('fill','#86a2ff');
+  m.appendChild(tri); defs.appendChild(m); svg.appendChild(defs);
+
+  const x0 = 40; let y = 20;
+
+  // Tokenization (click → tokenization page)
+  const tok = box(svg, x0, y, 200, 56, 'b-token', 'Tokenization', 'text → ids / mask');
+  makeClickable(tok.g, 'Open tokenization', new URL(ROUTES.tokenization, location.href), false);
+  y += 70; arrow(svg, x0+100, y-42, x0+100, y-10); // down
+
+  // Embeddings (click → embeddings page)
+  const emb = box(svg, x0, y, 220, 56, 'b-embed', 'Embeddings', `token & positional, |V|=${fmt(VOC)}`);
+  makeClickable(emb.g, 'Open embeddings', new URL(ROUTES.embeddings, location.href), false);
+  y += 70; arrow(svg, x0+110, y-42, x0+10, y+10); // down into first decoder row
+
+  // Decoder stack
+  for (let i=0; i<L; i++){
+    const top = y + i*(layerH + vgap);
+    const layerG = gEl('g'); svg.appendChild(layerG);
+    makeClickable(layerG, `Open decoder layer ${i}`, toLayerHref(i), false);
+
+    const t = gEl('text'); t.setAttribute('x', x0); t.setAttribute('y', top - 6); t.setAttribute('class','layerTitle'); t.textContent = `Decoder ${i}`;
+    layerG.appendChild(t);
+
+    box(layerG, x0, top, 120, 46, 'b-ln', 'LayerNorm');
+    box(layerG, x0+140, top, 120, 46, 'b-qkv', 'QKV Proj', `H=${H}, dₕ=${Math.max(1, Math.floor(DM/Math.max(1,H)))}`);
+
+    const hx = x0+280, hy = top, headsH = 76;
+    box(layerG, hx, hy, headW, headsH, 'b-head', `Heads (${H})`, `dₕ=${Math.max(1, Math.floor(DM/Math.max(1,H)))}`);
+    const cols = Math.min(H, 12), rows = Math.ceil(H / cols);
+    const cellW = (headW - 16) / cols, cellH = (headsH - 30) / rows;
+    let idx = 0;
+    for (let r=0; r<rows; r++){
+      for (let c=0; c<cols && idx<H; c++, idx++){
+        const rr = gEl('rect');
+        const cx = 8 + c*cellW, cy = 30 + r*cellH, w = Math.max(10, cellW-6), h = Math.max(10, cellH-6);
+        rr.setAttribute('x', hx + cx); rr.setAttribute('y', hy + cy); rr.setAttribute('width', w); rr.setAttribute('height', h);
+        rr.setAttribute('rx', 6); rr.setAttribute('ry', 6); rr.setAttribute('class','box b-head'); layerG.appendChild(rr);
+        const num = gEl('text'); num.setAttribute('x', hx + cx + w/2); num.setAttribute('y', hy + cy + h/2 + 1);
+        num.setAttribute('class','gridnum'); num.textContent = idx; layerG.appendChild(num);
+      }
+    }
+
+    const concat = box(layerG, hx + headW + 20, top, 90, 46, 'b-concat', 'Concat', 'H × dₕ');
+    const wo    = box(layerG, hx + headW + 130, top, 100, 46, 'b-wo', 'W_O', '→ d_model');
+    const res1  = box(layerG, hx + headW + 250, top, 120, 46, 'b-res', 'Residual', 'x + AttnOut');
+    box(layerG, x0, top+62, 120, 46, 'b-ln', 'LayerNorm');
+
+    const ffn    = box(layerG, x0+140, top+62, 160, 46, 'b-ffn', 'FFN / MLP', `d_ff=${normalize(cfg).DFF}`);
+    makeClickable(ffn.g, `Open FFN for layer ${i}`, toFfnHref(i), true);
+
+    const res2   = box(layerG, x0+320, top+62, 120, 46, 'b-res', 'Residual', 'x′ + MLP');
+
+    // arrows
+    arrow(layerG, x0+120, top+23, x0+140, top+23);
+    arrow(layerG, x0+260, top+23, hx, top+23);
+    arrow(layerG, hx+headW, top+23, concat.x, top+23);
+    arrow(layerG, concat.x+concat.w, top+23, wo.x, top+23);
+    arrow(layerG, wo.x+wo.w, top+23, res1.x, top+23);
+    arrow(layerG, res1.x+res1.w, top+23, x0, top+62+23);
+    arrow(layerG, x0+120, top+62+23, x0+140, top+62+23);
+    arrow(layerG, x0+300, top+62+23, x0+320, top+62+23);
+    arrow(layerG, x0+440, top+62+23, x0 + 10, top + layerH + vgap);
+  }
+
+  // Final LN → Output → Loss → Optim
+  const endY = y + L*(layerH + vgap) - vgap;
+  box(svg, x0, endY, 160, 56, 'b-final', 'Final LayerNorm');
+  const lm   = box(svg, x0 + 180, endY, 220, 56, 'b-lm', 'Output Head (LM)', `proj→|V|=${fmt(normalize(cfg).VOC)}`);
+  makeClickable(lm.g, 'Open output head', new URL(ROUTES.output, location.href), false);
+  arrow(svg, x0+160, endY+28, x0+180, endY+28);
+
+  const loss = box(svg, x0 + 420, endY, 150, 56, 'b-loss', 'Loss', 'NLL / CE / smoothing');
+  makeClickable(loss.g, 'Open loss', new URL(ROUTES.loss, location.href), false);
+  arrow(svg, x0+180+220, endY+28, x0+420, endY+28);
+
+  const optim = box(svg, x0 + 590, endY, 170, 56, 'b-optim', 'Optimization', 'AdamW / AMP');
+  makeClickable(optim.g, 'Open optimization', new URL(ROUTES.optim, location.href), false);
+  arrow(svg, x0+420+150, endY+28, x0+590, endY+28);
+
+  const mount = document.getElementById('canvas');
+  mount.innerHTML = ''; mount.appendChild(svg);
+}
+
+// ===== Config panel (per-item buttons) =====
+let CURRENT_CFG = null;
+function isPrimitive(v){ return (typeof v==='number' || typeof v==='boolean' || typeof v==='string'); }
+function looksInt(n){ return Number.isInteger(n); }
+
+function buildConfigForm(cfg){
+  const form = document.getElementById('cfgForm');
+  form.innerHTML = '';
+  const archKeys = ['hidden_size', 'num_heads', 'num_layers', 'intermediate_size', 'max_position_embeddings', 'vocab_size', 'use_rotary', 'rotary_dim', 'norm_type', 'ffn_type', 'tie_weights'];
+  const trainingKeys = ['batch_size', 'lr', 'schedule'];
+  
+  function createGroup(keys, title, editableKeys = []) {
+    const relevantKeys = keys.filter(k => cfg.hasOwnProperty(k));
+    if (relevantKeys.length === 0) return; // Don't show empty groups
+
+    const groupTitle = document.createElement('h3');
+    groupTitle.className = 'kv-group-title';
+    groupTitle.textContent = title;
+    form.appendChild(groupTitle);
+    
+    for (const k of relevantKeys.sort((a,b)=>a.localeCompare(b))){
+      const v = cfg[k];
+      const row = document.createElement('div'); row.className='rowKV';
+      const lab = document.createElement('label'); lab.textContent = k; lab.setAttribute('for','k_'+k);
+      row.appendChild(lab);
+
+      let editor, kind;
+      const isEditable = editableKeys.includes(k);
+      if (typeof v === 'number'){
+        editor = document.createElement('input'); editor.type='number'; editor.id='k_'+k;
+        editor.value = String(v); editor.step = looksInt(v) ? '1' : 'any'; kind='number';
+        editor.readOnly = !isEditable;
+      } else if (typeof v === 'boolean'){
+        editor = document.createElement('input'); editor.type='checkbox'; editor.id='k_'+k; editor.checked = v; kind='boolean';
+        editor.disabled = !isEditable;
+      } else {
+        editor = document.createElement('input'); editor.type='text'; editor.id='k_'+k; editor.value=String(v); editor.readOnly=true; kind='string';
+      }
+      editor.dataset.key = k; editor.dataset.kind = kind;
+      row.appendChild(editor);
+      form.appendChild(row);
+    }
+  }
+
+  const allKeys = Object.keys(cfg);
+  const coreArchKeys = archKeys.filter(k => allKeys.includes(k));
+  const coreTrainingKeys = trainingKeys.filter(k => allKeys.includes(k));
+  const otherKeys = allKeys.filter(k => !coreArchKeys.includes(k) && !coreTrainingKeys.includes(k));
+
+  createGroup(coreArchKeys, 'Model Architecture', ['hidden_size', 'num_heads', 'num_layers', 'intermediate_size', 'max_position_embeddings', 'use_rotary', 'rotary_dim']);
+  createGroup(coreTrainingKeys, 'Training & Optimization', ['batch_size', 'lr', 'schedule']); // Added lr and schedule to be editable
+  createGroup(otherKeys, 'Other Parameters', []);
+}
+
+function getEditedValues(){
+  const inputs = document.querySelectorAll('#cfgForm input');
+  const newCfg = {...CURRENT_CFG};
+  let allValid = true;
+  let validationMessage = '';
+
+  for(const el of inputs){
+    const key = el.dataset.key;
+    const kind = el.dataset.kind;
+    el.classList.remove('okFlash', 'badFlash');
+
+    if (el.readOnly || el.disabled) {
+      continue;
+    }
+
+    if (kind === 'number'){
+      const num = Number(el.value);
+      if (!Number.isFinite(num)){
+        allValid = false;
+        el.classList.add('badFlash');
+        continue;
+      }
+      const orig = CURRENT_CFG[key];
+      const roundedNum = (typeof orig ==='number' && Number.isInteger(orig)) ? Math.round(num) : num;
+
+      // --- New validation rules start here ---
+      if (key === 'max_position_embeddings' && roundedNum > 128) {
+        allValid = false;
+        validationMessage = 'Max position embeddings cannot exceed 128 due to computational restrictions.';
+        el.classList.add('badFlash');
+        continue;
+      }
+      if (key === 'hidden_size' && roundedNum > 256) {
+        allValid = false;
+        validationMessage = 'Hidden size cannot exceed 256 due to computational restrictions.';
+        el.classList.add('badFlash');
+        continue;
+      }
+      // --- New validation rules end here ---
+
+      newCfg[key] = roundedNum;
+
+    } else if (kind === 'boolean'){
+      newCfg[key] = !!el.checked;
+    } else if (kind === 'string') {
+      newCfg[key] = el.value;
+    }
+  }
+  return { newCfg, allValid, validationMessage };
+}
+
+async function updateAll(){
+  const { newCfg, allValid, validationMessage } = getEditedValues();
+  const err = document.getElementById('err');
+  err.textContent = '';
+
+  if (!allValid){
+    err.textContent = validationMessage || 'Please fix invalid values before saving.';
+    return;
+  }
+  try{
+    const url = new URL(CONFIG_SAVE_ENDPOINT, window.location.href);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newCfg)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+
+    // Success UI updates
+    CURRENT_CFG = newCfg;
+    renderDiagram(CURRENT_CFG);
+    buildConfigForm(CURRENT_CFG);
+    const inputs = document.querySelectorAll('#cfgForm input');
+    inputs.forEach(el => el.classList.add('okFlash'));
+    setTimeout(() => inputs.forEach(el => el.classList.remove('okFlash')), 700);
+    err.textContent = '';
+  }catch(_e){
+    err.textContent = 'Failed to save config. Please check server.';
+    const inputs = document.querySelectorAll('#cfgForm input');
+    inputs.forEach(el => el.classList.add('badFlash'));
+    setTimeout(() => inputs.forEach(el => el.classList.remove('badFlash')), 800);
+  }
+}
+
+async function startTraining(){
+  const startBtn = document.getElementById('startTrainingBtn');
+  const stepsInput = document.getElementById('stepsInput');
+  const err = document.getElementById('err');
+  err.textContent = '';
+
+  const steps = parseInt(stepsInput.value, 10);
+  if (isNaN(steps) || steps < 1) {
+    err.textContent = 'Please enter a valid number of steps greater than 0.';
+    stepsInput.classList.add('badFlash');
+    setTimeout(() => stepsInput.classList.remove('badFlash'), 800);
+    return;
+  }
+  
+  startBtn.textContent = 'Training...';
+  startBtn.disabled = true;
+
+  try {
+    const payload = { steps: steps };
+    const url = new URL(START_TRAINING_ENDPOINT, window.location.href);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+    const result = await response.json();
+    err.textContent = `Training started successfully! Server response: ${JSON.stringify(result)}`;
+    err.style.color = '#9aff9b';
+  } catch (e) {
+    err.textContent = 'Failed to start training. Please check server.';
+    err.style.color = '#ff9b9b';
+    console.error(e);
+  } finally {
+    startBtn.textContent = 'Start Training';
+    startBtn.disabled = false;
+  }
+}
+
+// ===== Boot =====
+const DEFAULT_CFG = {
+  "model_name": "toy-educ",
+  "model_type": "decoder-only", 
+  "tokenizer_path": "microsoft/phi-2",
+  "tokenizer_type": "huggingface",
+
+  "checkpoint_dir": "checkpoints/toy-educ",
+  "out_dir": "checkpoints/toy-educ",
+  "device": "cuda",
+  "seed": 42,
+
+  "hidden_size": 256,
+  "debug":"True",
+  "log_everything":"True",
+  "num_heads": 8,
+  "num_layers": 4,
+  "intermediate_size": 1024,
+  "max_position_embeddings": 128,
+  "vocab_size": 51200,
+  "use_rotary": true,
+  "rotary_dim": 32,
+  "norm_type": "layernorm",
+  "ffn_type": "gelu",
+  "qkv_proj": "fused",
+  "tie_weights": true,
+
+  "raw_data_path": "data/raw/my_corpus.txt",
+  "data_path": "data/my_corpus_seq128.train.bin",
+  "val_path": "data/my_corpus_seq128.val.bin",
+  "jsonl_key": "input_ids",
+
+  "batch_size": 2,
+  "grad_accum": 1,
+  "amp": true,
+  "clip_grad": 1.0,
+  "weight_decay": 0.0,
+
+  "lr": 3e-4,
+  "schedule": "constant",
+  "warmup_ratio": 0.0,
+  "min_lr_ratio": 1.0,
+
+  "total_step_budget": 200,
+  "epochs": 1,
+  "steps_today": 0,
+
+  "eval_every": 10,
+  "eval_batch_size": 2,
+  "log_every": 1,
+  "save_every": 25,
+
+  "resume_from": ""
+};
+async function loadConfig(){
+  const err = document.getElementById('err'); err.textContent = '';
+  try{
+    const url = new URL(CONFIG_ENDPOINT, window.location.href);
+    url.searchParams.append('ts', Date.now());
+    const res = await fetch(url.toString(), { cache:'no-store', headers:{'Accept':'application/json'} });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const raw = JSON.parse(cleanJSON(text));
+    CURRENT_CFG = unwrapConfigPayload(raw);
+    renderDiagram(CURRENT_CFG);
+    buildConfigForm(CURRENT_CFG);
+  }catch(e){
+    err.textContent = 'Failed to load config. Falling back to default...';
+    console.error(e);
+    CURRENT_CFG = DEFAULT_CFG;
+    renderDiagram(CURRENT_CFG);
+    buildConfigForm(CURRENT_CFG);
+  }
+}
+window.addEventListener('resize', ()=>CURRENT_CFG && renderDiagram(CURRENT_CFG));
+document.addEventListener('DOMContentLoaded', () => {
+  loadConfig();
+  document.getElementById('saveAllBtn').addEventListener('click', updateAll);
+  document.getElementById('startTrainingBtn').addEventListener('click', startTraining);
+});
+
+</script>
+</body>
+</html>

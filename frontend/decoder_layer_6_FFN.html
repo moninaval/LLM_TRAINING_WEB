@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FFN Deep Dive</title>
+    <!-- Load Inter font for a clean look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Load Tailwind CSS for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load P5.js Library for interactive diagram -->
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/p5.js"></script>
+    <!-- Load KaTeX for rendering math formulas -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" xintegrity="sha384-n8MVd4RsNIU0KOVEMcADelegTRmortBCqcZogxmaDKszYLiLectureo7CortfNEackfEVgNiEgXgl/6gUgdIMsvUiw" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" xintegrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUbKyIyUH" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" xintegrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d121c;
+            color: #e2e8f0;
+        }
+        .card {
+            background: #1a202c;
+            border: 1px solid #2d3748;
+            border-radius: 1rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            padding: 1.5rem;
+        }
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #a0aec0;
+            margin-bottom: 1rem;
+            border-bottom: 2px solid #2d3748;
+            padding-bottom: 0.5rem;
+        }
+        .table-container {
+            overflow-x: auto;
+            border: 1px solid #2d3748;
+            border-radius: 0.75rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        thead th {
+            position: sticky; top: 0;
+            background-color: #1a202c;
+            color: #cbd5e0;
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #2d3748;
+        }
+        tbody tr:nth-child(even) { background-color: rgba(255, 255, 255, 0.03); }
+        tbody tr:hover { background-color: rgba(255, 255, 255, 0.05); }
+        tbody td { padding: 1rem; vertical-align: middle; color: #e2e8f0; }
+        .field-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .field { font-weight: 700; font-size: 1rem; color: #4299e1; }
+        .field-desc { font-size: 0.8rem; color: #a0aec0; }
+        .mono {
+            font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.75rem; background-color: #0d121c; border: 1px solid #2d3748;
+            padding: 0.5rem 0.75rem; border-radius: 0.5rem; display: inline-block;
+            max-width: 100%; overflow: auto; white-space: pre; line-height: 1.25; color: #a0aec0;
+        }
+        .status { color: #a0aec0; font-size: 0.875rem; margin-top: 0.5rem; text-align: right; }
+        .loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.2); border-top: 4px solid #4299e1;
+            border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .katex-display { margin: 0; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 min-h-screen">
+
+    <div class="max-w-6xl mx-auto py-12 px-4 space-y-12">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold tracking-tight text-white mb-2">Feed-Forward Network (FFN) Explained</h1>
+            <p class="text-gray-400">A visual and data-driven guide to a core component of Large Language Models.</p>
+        </header>
+
+        <div class="card">
+            <h2 class="section-title">FFN Visual Diagram</h2>
+            <p class="text-sm text-gray-400 mb-4">This diagram illustrates the structure of a single FFN block, dynamically drawn based on the loaded model's dimensions.</p>
+            <div id="diagram-container" class="border-2 border-dashed border-gray-700 rounded-lg p-2 flex justify-center items-center h-80"></div>
+        </div>
+
+        <div class="card">
+            <h2 class="section-title">Shapes</h2>
+            <p class="text-gray-300 mb-4">The dimensions of the tensors (multi-dimensional arrays) that flow through the network. The shape is typically `[Batch Size, Sequence Length, Dimension]`.</p>
+            <div class="table-container">
+                <table aria-label="Shapes">
+                    <thead><tr><th class="w-1/2">Component</th><th class="w-1/2">Shape (Value)</th></tr></thead>
+                    <tbody id="shapesTbody"><tr><td colspan="2" class="text-center py-8"><div class="loading-spinner"></div></td></tr></tbody>
+                </table>
+            </div>
+            <div id="statusShapes" class="status">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2 class="section-title">Flow</h2>
+            <p class="text-gray-300 mb-4">The step-by-step transformation of the input vector as it passes through the FFN.</p>
+            <div class="table-container">
+                <table aria-label="Flow">
+                    <thead><tr><th class="w-2/5">Stage</th><th class="w-3/5">Value</th></tr></thead>
+                    <tbody id="flowTbody"><tr><td colspan="2" class="text-center py-8"><div class="loading-spinner"></div></td></tr></tbody>
+                </table>
+            </div>
+            <div id="statusFlow" class="status">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        const ENDPOINT = '/FFN/6';
+        const shapesTbody = document.getElementById('shapesTbody');
+        const flowTbody = document.getElementById('flowTbody');
+        const statusShapes = document.getElementById('statusShapes');
+        const statusFlow = document.getElementById('statusFlow');
+        
+        let ffnShapes = { d_model: 256, d_ff: 1024 };
+
+        const sketch = (p) => {
+            p.setup = () => {
+                const container = document.getElementById('diagram-container');
+                const canvas = p.createCanvas(container.offsetWidth - 4, container.offsetHeight - 4);
+                canvas.parent('diagram-container');
+                p.noLoop();
+            };
+            p.draw = () => {
+                p.background('#1a202c');
+                const d_model = ffnShapes.d_model || 256;
+                const d_ff = ffnShapes.d_ff || 1024;
+                const inputNodes = Math.min(8, Math.round(d_model / 64));
+                const hiddenNodes = Math.min(12, Math.round(d_ff / 128));
+                const outputNodes = inputNodes;
+                const nodeRadius = 12;
+                const layerSpacing = (p.width - 100) / 2;
+                const nodeSpacing = 30;
+                const inputX = 50;
+                const hiddenX = inputX + layerSpacing;
+                const outputX = hiddenX + layerSpacing;
+                const textY = p.height - 20;
+
+                function drawLayer(x, numNodes, totalDim, label, color) {
+                    for (let i = 0; i < numNodes; i++) {
+                        const y = p.map(i, 0, numNodes - 1, (p.height - (numNodes - 1) * nodeSpacing) / 2, (p.height + (numNodes - 1) * nodeSpacing) / 2);
+                        p.stroke(color); p.strokeWeight(2); p.fill(26, 32, 44);
+                        p.ellipse(x, y, nodeRadius * 2);
+                    }
+                    p.noStroke(); p.fill(color); p.textSize(14); p.textAlign(p.CENTER, p.CENTER);
+                    p.text(`${label}\n(dim: ${totalDim})`, x, textY);
+                }
+                function drawConnections(x1, numNodes1, x2, numNodes2) {
+                    p.stroke(45, 55, 72, 80); p.strokeWeight(1);
+                    for (let i = 0; i < numNodes1; i++) {
+                        for (let j = 0; j < numNodes2; j++) {
+                            const y1 = p.map(i, 0, numNodes1 - 1, (p.height - (numNodes1 - 1) * nodeSpacing) / 2, (p.height + (numNodes1 - 1) * nodeSpacing) / 2);
+                            const y2 = p.map(j, 0, numNodes2 - 1, (p.height - (numNodes2 - 1) * nodeSpacing) / 2, (p.height + (numNodes2 - 1) * nodeSpacing) / 2);
+                            p.line(x1, y1, x2, y2);
+                        }
+                    }
+                }
+                drawConnections(inputX, inputNodes, hiddenX, hiddenNodes);
+                drawConnections(hiddenX, hiddenNodes, outputX, outputNodes);
+                drawLayer(inputX, inputNodes, d_model, 'Input (x)', '#4299e1');
+                drawLayer(hiddenX, hiddenNodes, d_ff, 'Hidden Layer (h)', '#48bb78');
+                drawLayer(outputX, outputNodes, d_model, 'Output (y)', '#f56565');
+            };
+            p.windowResized = () => {
+                const container = document.getElementById('diagram-container');
+                p.resizeCanvas(container.offsetWidth - 4, container.offsetHeight - 4);
+            };
+        };
+        let p5Instance = new p5(sketch);
+
+        const shapeExplanations = {
+            x_in: {
+                description: "Input to the entire decoder block.",
+                formula: "x_{in} \\in \\mathbb{R}^{B \\times T \\times d_{model}}"
+            },
+            ln1_out: {
+                description: "Output after the first LayerNorm (pre-attention).",
+                formula: "LN(x_{in})"
+            },
+            attn_out: {
+                description: "Output from the self-attention sub-layer.",
+                formula: "\\text{Attention}(LN(x_{in}))"
+            },
+            y1: {
+                description: "Output after the first residual connection.",
+                formula: "x_{in} + \\text{Attention}(LN(x_{in}))"
+            },
+            ln2_out: {
+                description: "Output after the second LayerNorm (pre-FFN).",
+                formula: "LN(y_1)"
+            },
+            ffn_out: {
+                description: "Output from the Feed-Forward Network sub-layer.",
+                formula: "\\text{FFN}(LN(y_1))"
+            },
+            y2: {
+                description: "Final output of the decoder block.",
+                formula: "y_1 + \\text{FFN}(LN(y_1))"
+            }
+        };
+
+        function setStatus(el, txt) { if (el) el.textContent = txt; }
+        function tryParse(x) { if (typeof x === 'string') { try { return JSON.parse(x); } catch { return x; } } return x; }
+        const isObj = x => x && typeof x === 'object' && !Array.isArray(x);
+        const isPrim = x => ['string', 'number', 'boolean'].includes(typeof x);
+        function fmt(v) { if (v === null || v === undefined) return String(v); if (isPrim(v)) return String(v); if (Array.isArray(v)) return v.every(isPrim) ? '[' + v.join(',') + ']' : JSON.stringify(v); try { return JSON.stringify(v); } catch { return String(v); } }
+        
+        function extractShapes(root) { if (root && isObj(root.shapes)) return root.shapes; let found = null; (function walk(n) { if (found) return; if (Array.isArray(n)) { n.forEach(walk); return; } if (isObj(n)) { if (isObj(n.shapes)) { found = n.shapes; return; } Object.values(n).forEach(walk); } })(root); return found || {}; }
+        function extractFlow(root) { if (root && Array.isArray(root.flow)) return root.flow; let found = null; (function walk(n) { if (found) return; if (Array.isArray(n)) { n.forEach(walk); return; } if (isObj(n)) { if (Array.isArray(n.flow)) { found = n.flow; return; } Object.values(n).forEach(walk); } })(root); return found || []; }
+
+        function renderShapes(obj) {
+            shapesTbody.innerHTML = '';
+            const keys = Object.keys(obj);
+            if (keys.length === 0) { setStatus(statusShapes, 'No shapes found.'); return; }
+            
+            for (const k of keys) {
+                const tr = document.createElement('tr');
+                const tdK = document.createElement('td');
+                tdK.className = 'field-cell';
+                
+                const explanation = shapeExplanations[k];
+                let keyHtml = `<div class="field">${k}</div>`;
+                if (explanation) {
+                    keyHtml += `<p class="field-desc">${explanation.description}</p>`;
+                    if (explanation.formula) {
+                        keyHtml += `<div>$$${explanation.formula}$$</div>`;
+                    }
+                }
+                tdK.innerHTML = keyHtml;
+
+                const tdV = document.createElement('td');
+                const val = fmt(obj[k]);
+                const code = document.createElement('code');
+                code.className = 'mono';
+                code.textContent = val;
+                tdV.appendChild(code);
+                
+                tr.append(tdK, tdV);
+                shapesTbody.appendChild(tr);
+            }
+            renderMathInElement(shapesTbody);
+            setStatus(statusShapes, `Loaded ${keys.length} shape entries`);
+        }
+
+        function pickFlowValue(item) { if ('vec' in item) return fmt(item.vec); for (const k of Object.keys(item)) { if (k !== 'stage' && k !== 'name') return fmt(item[k]); } return ''; }
+        function renderFlow(arr) {
+            flowTbody.innerHTML = '';
+            if (arr.length === 0) { setStatus(statusFlow, 'No flow data found.'); return; }
+            let count = 0;
+            for (const it of arr) {
+                const key = (isObj(it) && ('stage' in it || 'name' in it)) ? (it.stage ?? it.name) : `item[${count}]`;
+                const val = isObj(it) ? pickFlowValue(it) : fmt(it);
+                const tr = document.createElement('tr');
+                const tdK = document.createElement('td'); tdK.className = 'field'; tdK.textContent = String(key);
+                const tdV = document.createElement('td');
+                if ((val || '').startsWith('[') || (val || '').startsWith('{')) {
+                    const code = document.createElement('code'); code.className = 'mono'; code.textContent = val;
+                    tdV.appendChild(code);
+                } else { tdV.textContent = val; }
+                tr.append(tdK, tdV);
+                flowTbody.appendChild(tr);
+                count++;
+            }
+            setStatus(statusFlow, `Loaded ${count} flow rows`);
+        }
+
+        async function load() {
+            try {
+                setStatus(statusShapes, 'Loading...'); setStatus(statusFlow, 'Loading...');
+                const res = await fetch(ENDPOINT);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                let data = tryParse(await res.text()); data = tryParse(data);
+
+                const shapes = extractShapes(data);
+                
+                // --- CORRECTED LOGIC ---
+                ffnShapes.d_model = shapes.d_model || (shapes.x_in ? shapes.x_in[2] : 256);
+                ffnShapes.d_ff = shapes.d_ff || (ffnShapes.d_model * 4); // Default to 4x d_model
+                
+                p5Instance.redraw();
+
+                renderShapes(shapes);
+                renderFlow(extractFlow(data));
+                
+            } catch (err) {
+                console.error(err);
+                const errorMessage = 'Error: ' + err.message;
+                setStatus(statusShapes, errorMessage); setStatus(statusFlow, errorMessage);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', load);
+    </script>
+</body>
+</html>

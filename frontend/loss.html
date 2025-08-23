@@ -1,26 +1,92 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Loss Viewer</title>
+  <title>LLM Loss Explorer 🎓</title>
+  <!-- KaTeX for rendering math formulas -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" xintegrity="sha384-n8MVd4RsNIU0KOVEMcADelegTRmortBCqcZogxmaDKszYLiLectureo7CortfNEackfEVgNiEgXgl/6gUgdIMsvUiw" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" xintegrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUbKyIyUH" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" xintegrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 16px; }
-    h2 { margin: 0 0 8px; }
-    .formula { font-style: italic; color:#555; margin: 12px 0; }
-    table { border-collapse: collapse; margin-bottom: 20px; width: 100%; }
-    th, td { border:1px solid #ddd; padding:6px; text-align:left; vertical-align: top; }
-    th { background:#fafafa; width: 220px; }
-    #out { min-height: 32px; color:#666; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      background-color: #f8fafc;
+      color: #1e293b;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 24px auto;
+      padding: 0 24px;
+    }
+    h1, h2, h3 {
+      color: #0f172a;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    h2 { margin: 24px 0 10px; font-size: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;}
+    h3 { font-size: 16px; margin: 18px 0 8px; }
+
+    .header-intro {
+        background-color: #fff; border:1px solid #e2e8f0; border-radius:12px;
+        padding: 20px; margin-bottom: 24px; line-height: 1.6;
+    }
+    .muted { color:#64748b; text-align: center; padding: 40px; }
+    
+    .main-layout {
+        display: grid;
+        grid-template-columns: 350px 1fr;
+        gap: 24px;
+        align-items: flex-start;
+    }
+    .left-column, .right-column { display: flex; flex-direction: column; gap: 24px; }
+
+    .info-box {
+        background-color: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px;
+    }
+    
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border:1px solid #e2e8f0; padding: 10px; vertical-align: middle; text-align: left; }
+    th { background:#f8fafc; width: 180px; font-weight: 500; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background-color: #f1f5f9; padding: 2px 4px; border-radius: 4px; font-size: 0.9em; }
+    
+    .tooltip { position: relative; display: inline-block; border-bottom: 1px dotted #64748b; cursor: help; }
+    .tooltip .tooltiptext { visibility: hidden; width: 280px; background-color: #1e293b; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -140px; opacity: 0; transition: opacity 0.3s; font-weight: normal; font-size: 13px; }
+    .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+    
+    .formula-display {
+        text-align: center;
+        font-size: 1.2em;
+        padding: 10px;
+        background-color: #f1f5f9;
+        border-radius: 8px;
+    }
+    
+    .hardest-tokens-table th:last-child,
+    .hardest-tokens-table td:last-child {
+        background-color: #fef9c3; /* Highlight the NLL column */
+        font-weight: 600;
+    }
   </style>
 </head>
 <body>
-  <h2>Loss Metrics</h2>
-  <div id="out">Loading…</div>
-  <div id="formula" class="formula"></div>
+<div class="container">
+  <h1>🎓 LLM Loss Explorer</h1>
+  <div class="header-intro">
+    <p>This page shows the <strong>loss metrics</strong> for a single step of an LLM's training. <strong>Loss</strong> is a crucial concept: it's a number that measures how "wrong" or "surprised" the model was by the correct answer. The entire goal of training is to adjust the model's parameters to make this number as low as possible over time.</p>
+  </div>
+
+  <div id="content" class="muted">Loading Loss Data…</div>
+</div>
 
 <script>
-const ENDPOINT = "/loss";        // change if needed
-const USE_CREDENTIALS = false;   // set true if your API needs cookies (and CORS allows credentials)
+const ENDPOINT = "/loss";
+const USE_CREDENTIALS = false;
 
 // ---- robust metrics finder (recursive) ----
 function looksLikeMetrics(obj) {
@@ -33,11 +99,7 @@ function findMetrics(root, maxDepth = 10) {
     if (!node || depth > maxDepth || typeof node !== 'object') return null;
     if (seen.has(node)) return null;
     seen.add(node);
-
-    // If this object looks like the metrics we want, return it
     if (looksLikeMetrics(node)) return node;
-
-    // If it's an array, try each element
     if (Array.isArray(node)) {
       for (const el of node) {
         const hit = walk(el, depth + 1);
@@ -45,8 +107,6 @@ function findMetrics(root, maxDepth = 10) {
       }
       return null;
     }
-
-    // Otherwise walk its values
     for (const key of Object.keys(node)) {
       const hit = walk(node[key], depth + 1);
       if (hit) return hit;
@@ -57,43 +117,79 @@ function findMetrics(root, maxDepth = 10) {
 }
 
 // ---- rendering helpers ----
+const metricDocs = {
+    'Step': { desc: 'The current training iteration number.' },
+    'Loss': { desc: 'The average negative log-likelihood over all tokens in the batch. This is the primary value we want to minimize.' },
+    'PPL': { desc: 'Perplexity (e^loss). An intuitive measure of how many choices the model was effectively considering for the next token. Lower is better.' },
+    'PPL Overflow': { desc: 'Indicates if the perplexity calculation resulted in a number too large to represent, often due to a very high loss.' },
+    'Batch Size': { desc: 'The number of sequences processed in this step.' },
+    'Seq Len': { desc: 'The length of each sequence in the batch.' },
+    'Vocab Size': { desc: 'The total number of unique tokens the model knows.' },
+    'Ignore Index': { desc: 'A special token ID (often -100) used in labels to indicate positions that should be ignored when calculating the loss.' },
+    'Label Smoothing': { desc: 'A regularization technique that prevents the model from becoming too confident in its predictions, which can improve generalization.' },
+    'Per-sequence Loss': { desc: 'The individual loss value calculated for each sequence in the batch.' }
+};
+
+function createTooltip(key) {
+    const doc = metricDocs[key];
+    if (!doc) return document.createTextNode(key);
+    const span = document.createElement('span');
+    span.className = 'tooltip';
+    span.textContent = key;
+    const tooltipText = document.createElement('span');
+    tooltipText.className = 'tooltiptext';
+    tooltipText.textContent = doc.desc;
+    span.appendChild(tooltipText);
+    return span;
+}
+
 function mkRow(key, val){
   const tr = document.createElement('tr');
-  const th = document.createElement('th'); th.textContent = key;
+  const th = document.createElement('th');
+  th.appendChild(createTooltip(key));
   const td = document.createElement('td');
+  td.className = 'mono';
   if (Array.isArray(val)) {
-    td.textContent = val.join(', ');
+    td.textContent = val.map(v => v.toFixed ? v.toFixed(4) : v).join(', ');
   } else {
     td.textContent = (val === null || val === undefined) ? '' : String(val);
   }
   tr.appendChild(th); tr.appendChild(td);
   return tr;
 }
+
 function renderStats(obj){
   const table = document.createElement('table');
   const tbody = document.createElement('tbody');
-
-  tbody.appendChild(mkRow('Step', obj.step));
-  tbody.appendChild(mkRow('Loss', obj.loss));
-  tbody.appendChild(mkRow('PPL', obj.ppl));
-  tbody.appendChild(mkRow('PPL Overflow', obj.ppl_overflow));
-  tbody.appendChild(mkRow('Batch Size', obj.batch_size));
-  tbody.appendChild(mkRow('Seq Len', obj.seq_len));
-  tbody.appendChild(mkRow('Vocab Size', obj.vocab_size));
-  tbody.appendChild(mkRow('Ignore Index', obj.ignore_index));
-  tbody.appendChild(mkRow('Label Smoothing', obj.label_smoothing));
-  tbody.appendChild(mkRow('Per-sequence Loss', obj.per_seq_loss));
-
+  const data = {
+      'Step': obj.step,
+      'Loss': obj.loss,
+      'PPL': obj.ppl,
+      'PPL Overflow': obj.ppl_overflow,
+      'Batch Size': obj.batch_size,
+      'Seq Len': obj.seq_len,
+      'Vocab Size': obj.vocab_size,
+      'Ignore Index': obj.ignore_index,
+      'Label Smoothing': obj.label_smoothing,
+      'Per-sequence Loss': obj.per_seq_loss
+  };
+  Object.entries(data).forEach(([key, val]) => {
+      if (val !== undefined && val !== null) {
+          tbody.appendChild(mkRow(key, val));
+      }
+  });
   table.appendChild(tbody);
   return table;
 }
+
 function renderHardestTokens(arr){
   const table = document.createElement('table');
+  table.className = 'hardest-tokens-table';
   const thead = document.createElement('thead');
   thead.innerHTML = `
     <tr>
-      <th>b</th>
-      <th>t</th>
+      <th>Batch Idx (b)</th>
+      <th>Seq Idx (t)</th>
       <th>Target ID</th>
       <th>Target Token</th>
       <th>Pred ID</th>
@@ -101,7 +197,6 @@ function renderHardestTokens(arr){
       <th>NLL</th>
     </tr>`;
   table.appendChild(thead);
-
   const tbody = document.createElement('tbody');
   (arr || []).forEach(tok => {
     const tr = document.createElement('tr');
@@ -112,7 +207,7 @@ function renderHardestTokens(arr){
       <td>${tok?.target_token ?? ''}</td>
       <td>${tok?.pred_id ?? ''}</td>
       <td>${tok?.pred_token ?? ''}</td>
-      <td>${tok?.nll ?? ''}</td>
+      <td class="mono">${tok?.nll?.toFixed(4) ?? ''}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -120,20 +215,63 @@ function renderHardestTokens(arr){
   return table;
 }
 
+// --- Main rendering function for the new layout ---
+function renderContent(obj, container) {
+    container.innerHTML = ''; // Clear the 'Loading...' message
+
+    const mainLayout = document.createElement('div');
+    mainLayout.className = 'main-layout';
+
+    const leftColumn = document.createElement('div');
+    leftColumn.className = 'left-column';
+
+    const rightColumn = document.createElement('div');
+    rightColumn.className = 'right-column';
+
+    mainLayout.appendChild(leftColumn);
+    mainLayout.appendChild(rightColumn);
+    container.appendChild(mainLayout);
+    
+    // --- Left Column: Formula and Context ---
+    const formulaBox = document.createElement('div');
+    formulaBox.className = 'info-box';
+    formulaBox.innerHTML = '<h2>Loss Formula</h2>';
+    const formulaDisplay = document.createElement('div');
+    formulaDisplay.className = 'formula-display';
+    formulaDisplay.textContent = obj.formula || `L_{CE} = -\\sum_{i=1}^{C} y_i \\log(\\hat{y}_i)`;
+    formulaBox.appendChild(formulaDisplay);
+    formulaBox.innerHTML += `<p style="font-size: 14px; color: #475569; text-align: center; margin-top: 10px;">This is the <strong>Cross-Entropy Loss</strong>, which measures the difference between the predicted probability distribution (ŷ) and the true one-hot encoded label (y).</p>`;
+    leftColumn.appendChild(formulaBox);
+    renderMathInElement(formulaBox);
+
+    // --- Right Column: Stats and Hardest Tokens ---
+    const statsBox = document.createElement('div');
+    statsBox.className = 'info-box';
+    statsBox.innerHTML = '<h2>Overall Stats</h2>';
+    statsBox.appendChild(renderStats(obj));
+    rightColumn.appendChild(statsBox);
+
+    const hardestTokensBox = document.createElement('div');
+    hardestTokensBox.className = 'info-box';
+    hardestTokensBox.innerHTML = `
+        <h2>Hardest Tokens to Predict</h2>
+        <p style="font-size: 14px; color: #475569; line-height: 1.5;">This table shows the specific tokens where the model was most "surprised" (had the highest loss). A high <strong>NLL</strong> (Negative Log-Likelihood) means the model assigned a very low probability to the correct token. This is extremely useful for seeing what kinds of patterns the model is failing to learn.</p>
+    `;
+    hardestTokensBox.appendChild(renderHardestTokens(obj.hardest_tokens));
+    rightColumn.appendChild(hardestTokensBox);
+}
+
 async function load(){
-  const out = document.getElementById('out');
+  const out = document.getElementById('content');
   try {
-    const res = await fetch(ENDPOINT + (ENDPOINT.includes('?') ? '' : `?ts=${Date.now()}`), {
+    const res = await fetch(ENDPOINT + `?ts=${Date.now()}`, {
       method: 'GET',
       headers: { 'Accept': 'application/json, text/plain;q=0.9, */*;q=0.8' },
       cache: 'no-store',
       mode: 'cors',
       credentials: USE_CREDENTIALS ? 'include' : 'omit'
     });
-    if (!res.ok) {
-      out.textContent = `HTTP ${res.status} ${res.statusText}`;
-      return;
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
 
     const text = await res.text();
     let payload;
@@ -143,28 +281,14 @@ async function load(){
       payload = JSON.parse(cleaned);
     }
 
-    // Find the metrics object anywhere in the payload
     const obj = findMetrics(payload);
-    if (!obj) {
-      out.textContent = 'Could not find metrics object in response.';
-      return;
-    }
+    if (!obj) throw new Error('Could not find metrics object in response.');
 
-    out.style.color = '#000';
-    out.innerHTML = '';
-
-    const h3a = document.createElement('h3'); h3a.textContent = 'Overall Stats';
-    out.appendChild(h3a);
-    out.appendChild(renderStats(obj));
-
-    const h3b = document.createElement('h3'); h3b.textContent = 'Hardest Tokens';
-    out.appendChild(h3b);
-    out.appendChild(renderHardestTokens(obj.hardest_tokens));
-
-    const f = document.getElementById('formula');
-    f.textContent = 'Formula: ' + (obj.formula || 'NLL = -log softmax(logits)[target]; loss = mean over valid tokens; ppl = exp(loss)');
+    renderContent(obj, out);
+    
   } catch (e) {
-    out.textContent = 'Failed to load.';
+    console.error("Failed to load or render loss data:", e);
+    out.textContent = `Failed to load or parse data from ${ENDPOINT}. Check the browser console (F12) for more details.`;
   }
 }
 

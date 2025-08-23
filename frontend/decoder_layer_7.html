@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attention Mechanism Visualizer</title>
+    <!-- Use Tailwind CSS for modern, responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b1220; /* Dark background from original code */
+            color: #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 90vw;
+            margin: auto;
+            flex-grow: 1;
+        }
+        .flow-diagram-container {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            padding: 2rem 0;
+        }
+        .diagram-block {
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #e2e8f0;
+            text-align: center;
+            min-width: 150px;
+            transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+            cursor: pointer;
+        }
+        .diagram-block:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .arrow {
+            width: 30px;
+            height: 2px;
+            background-color: #64748b;
+            position: relative;
+            transform: scaleX(1);
+            transition: transform 0.3s ease-in-out;
+        }
+        .arrow::after {
+            content: '';
+            position: absolute;
+            right: -5px;
+            top: -4px;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 5px 0 5px 8px;
+            border-color: transparent transparent transparent #64748b;
+        }
+        .pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background-color: #334155;
+            border: 1px solid #475569;
+            font-size: 12px;
+            color: #d1d5db;
+        }
+        .details-summary {
+            cursor: pointer;
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            background-color: #1f2937;
+            border-radius: 8px;
+            transition: background-color 0.2s;
+            list-style: none; /* Hide default triangle */
+        }
+        .details-summary::-webkit-details-marker {
+            display: none;
+        }
+        .details-summary::before {
+            content: '►'; /* Custom triangle */
+            display: inline-block;
+            margin-right: 0.5em;
+            transition: transform 0.2s;
+        }
+        details[open] > .details-summary::before {
+            transform: rotate(90deg);
+        }
+        .details-content {
+            padding: 0.5rem;
+            margin-left: 1rem;
+            border-left: 2px solid #374151;
+            font-size: 0.875rem;
+            line-height: 1.25;
+        }
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        .data-array {
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
+        .sub-block {
+            background-color: #1a2335;
+            padding: 0.5rem;
+            border-radius: 8px;
+            margin-top: 0.5rem;
+        }
+        .formula-box {
+            background-color: #1c2b4d;
+            border: 1px solid #3d4a75;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-style: italic;
+        }
+    </style>
+    <!-- MathJax for rendering formulas -->
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="p-8">
+
+    <header class="text-center mb-8">
+        <h1 id="main-title" class="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
+            Decoder Attention Flow
+        </h1>
+        <p class="text-lg text-gray-400 mt-2">A horizontal visualization of the attention mechanism.</p>
+    </header>
+
+    <main class="container">
+        <div id="flow-container" class="flow-diagram-container">
+            <!-- This is where the main diagram blocks will go -->
+        </div>
+
+        <div id="data-view" class="mt-8 p-6 bg-gray-900 rounded-xl shadow-2xl hidden">
+            <div id="data-content" class="text-gray-200">
+                <!-- Detailed data will be rendered here -->
+            </div>
+        </div>
+
+        <div id="status-message" class="text-center text-lg text-gray-300">
+            Loading...
+        </div>
+    </main>
+
+    <script>
+        // API Endpoint for data retrieval
+        const ENDPOINT = "/decoder/layers/7";
+        const FFN_PAGE = "decoder_layer_7_FFN.html";
+        const USE_CREDENTIALS = false;
+
+        // --- Utility Functions ---
+        const $ = id => document.getElementById(id);
+        const fmtScalar = v => {
+            if (v === null || v === undefined) return '';
+            if (typeof v === 'number') {
+                const s = String(v);
+                if (s.includes('e') || !s.includes('.')) return s;
+                return Number(v.toFixed(4)).toString();
+            }
+            return String(v);
+        };
+        const isArrayLike = v => Array.isArray(v) || (v && typeof v.length === 'number');
+
+        // --- Rendering Functions ---
+
+        /**
+         * Renders a diagram block for a stage in the attention flow.
+         * @param {string} title - The title of the block (e.g., "LayerNorm").
+         * @param {string} subtitle - A short description (e.g., "Input Normalization").
+         * @param {string} bgColor - Tailwind CSS class for background color.
+         * @param {function} onClickHandler - The function to call when the block is clicked.
+         * @returns {HTMLElement} The created div element.
+         */
+        function createDiagramBlock(title, subtitle, bgColor, onClickHandler = null) {
+            const block = document.createElement('div');
+            block.className = `diagram-block ${bgColor}`;
+            block.innerHTML = `
+                <h3 class="text-md font-bold">${title}</h3>
+                <p class="text-xs text-gray-300 mt-1">${subtitle}</p>
+            `;
+            if (onClickHandler) {
+                block.addEventListener('click', onClickHandler);
+            }
+            return block;
+        }
+        
+        /**
+         * Renders an arrow element.
+         * @returns {HTMLElement} The created div element.
+         */
+        function createArrow() {
+            const arrow = document.createElement('div');
+            arrow.className = 'arrow';
+            return arrow;
+        }
+
+        // Mapping of head stages to their descriptions
+        const headStageDescriptions = {
+            "q_after_proj_rope": "Query vector (what this token is “asking about”) , Q=X⋅WQ.",
+            "k_after_proj_rope": "Key vectors (addresses all tokens expose for lookup), K=X⋅WK.",
+            "v_after_proj": "Value vectors (the actual content carried by tokens), V=X⋅WV​.",
+            "scores_raw": "Raw similarity (Q · K before mask/softmax),scores=Q⋅KT\sqrt{d_{head}}",
+            "scores_masked": "Scores after applying mask (e.g., causal/pad), scores_masked=scores+mask",
+            "weights_softmax": "Attention distribution (probabilities over tokens), α=softmax(scores_masked)",
+            "weights_after_dropout": "Final weights used (after dropout in training), α′=dropout(α)",
+            "topk_after_dropout": "Top-k tokens with highest attention (with K & V), select top-kα′",
+            "context_head":"The aggregated output vector of this head, Contexth​(t)=j∑​αj′​⋅Vj​ "
+        };
+        
+        /**
+         * Renders a trie-like, nested structure for head data.
+         * @param {object} headData - The data for a single attention head.
+         * @returns {string} HTML string for the trie structure.
+         */
+        function renderHeadTrie(headData) {
+            let html = `
+                <h3 class="text-xl font-bold mb-4">Head #${headData.head} Data</h3>
+                <p class="text-gray-400 text-sm">Click to expand and view detailed vectors.</p>
+                <div class="formula-box">
+                    <p class="text-sm font-semibold">Formula for Attention:</p>
+                    <div class="text-center text-lg mt-2 mono">
+                        $$ Attention(Q, K, V) = \\text{softmax}(\\frac{QK^T}{\\sqrt{d_k}})V $$
+                    </div>
+                </div>
+                <div class="mt-4">
+            `;
+
+            const traces = headData.trace || [];
+            if (traces.length === 0) {
+                html += `<div class="sub-block text-center text-gray-500">No trace data available.</div>`;
+            } else {
+                traces.forEach(stage => {
+                    const stageName = stage.stage || `Stage ${stage.stage_idx}`;
+                    const description = headStageDescriptions[stage.stage] || "No description available";
+
+                    html += `
+                        <details class="mb-2">
+                            <summary class="details-summary text-base font-semibold">${stageName} <span class="text-xs text-gray-400 font-normal">(${description})</span></summary>
+                            <div class="details-content">
+                    `;
+                    
+                    Object.keys(stage).forEach(key => {
+                        // Skip rendering `stage` and `stage_idx` keys
+                        if (key === 'stage' || key === 'stage_idx') {
+                            return;
+                        }
+
+                        const value = stage[key];
+                        html += `<div class="mt-2">`;
+                        if (isArrayLike(value)) {
+                            // If it's an array, show a preview and full content on hover
+                            const preview = Array.from(value).slice(0, 10).map(fmtScalar).join(', ') + (value.length > 10 ? '...' : '');
+                            const fullContent = JSON.stringify(Array.from(value), null, 2);
+                            html += `
+                                <div class="font-bold text-gray-300">${key}: <span class="data-array">(length: ${value.length})</span></div>
+                                <div class="mono text-sm break-words mt-1">${preview}</div>
+                                <details class="mt-2">
+                                    <summary class="details-summary text-sm font-normal">Show Full Array</summary>
+                                    <pre class="bg-gray-800 p-2 rounded-lg text-xs overflow-auto max-h-40">${fullContent}</pre>
+                                </details>
+                            `;
+                        } else if (typeof value === 'object' && value !== null) {
+                            // Handle object-like structures (e.g., topk)
+                             html += `<div class="font-bold text-gray-300">${key}:</div>`;
+                             html += `<pre class="bg-gray-800 p-2 rounded-lg text-xs overflow-auto max-h-40">${JSON.stringify(value, null, 2)}</pre>`;
+                        } else {
+                            html += `
+                                <div class="font-bold text-gray-300">${key}: <span class="mono">${fmtScalar(value)}</span></div>
+                            `;
+                        }
+                        html += `</div>`;
+                    });
+
+                    html += `
+                            </div>
+                        </details>
+                    `;
+                });
+            }
+            html += `</div>`;
+            return html;
+        }
+        
+        /**
+         * Renders the data for the concatenated vector stage.
+         * @param {object} mergedData - The merged data object.
+         * @returns {string} HTML string for the data view.
+         */
+        function renderConcatData(mergedData) {
+            const concatVector = mergedData.concat_vector || mergedData.concatVector;
+            return `
+                <h3 class="text-xl font-bold mb-4">Concatenated Vector</h3>
+                <div class="formula-box">
+                    <p class="text-sm font-semibold">Formula for Concatenation:</p>
+                    <div class="text-center text-lg mt-2 mono">
+                        $$ \\text{ConcatVector} = [H_1 || H_2 || ... || H_n] $$
+                    </div>
+                </div>
+                ${concatVector ? `
+                <div class="mt-4">
+                    <div class="font-bold text-gray-300">Vector: <span class="data-array">(length: ${concatVector.length})</span></div>
+                    <div class="mono text-sm break-words mt-1">${Array.from(concatVector).slice(0, 50).map(fmtScalar).join(', ')}...</div>
+                    <details class="mt-2">
+                        <summary class="details-summary text-sm font-normal">Show Full Array</summary>
+                        <pre class="bg-gray-800 p-2 rounded-lg text-xs overflow-auto max-h-80">${JSON.stringify(Array.from(concatVector), null, 2)}</pre>
+                    </details>
+                </div>
+                ` : '<p class="text-center text-gray-500 mt-4">Concatenated vector not found in data.</p>'}
+            `;
+        }
+        
+        /**
+         * Renders the data for the W_O (Output Weighting) stage.
+         * @param {object} mergedData - The merged data object.
+         * @returns {string} HTML string for the data view.
+         */
+        function renderWOData(mergedData) {
+            const woOutput = mergedData.wo_output || mergedData.woOutput;
+            return `
+                <h3 class="text-xl font-bold mb-4">Output After W_O Weighting</h3>
+                <div class="formula-box">
+                    <p class="text-sm font-semibold">Formula for W_O:</p>
+                    <div class="text-center text-lg mt-2 mono">
+                        $$ \\text{Output} = \\text{ConcatVector} \\times W_O $$
+                    </div>
+                </div>
+                ${woOutput ? `
+                <div class="mt-4">
+                    <div class="font-bold text-gray-300">Vector: <span class="data-array">(length: ${woOutput.length})</span></div>
+                    <div class="mono text-sm break-words mt-1">${Array.from(woOutput).slice(0, 50).map(fmtScalar).join(', ')}...</div>
+                    <details class="mt-2">
+                        <summary class="details-summary text-sm font-normal">Show Full Array</summary>
+                        <pre class="bg-gray-800 p-2 rounded-lg text-xs overflow-auto max-h-80">${JSON.stringify(Array.from(woOutput), null, 2)}</pre>
+                    </details>
+                </div>
+                ` : '<p class="text-center text-gray-500 mt-4">W_O output not found in data.</p>'}
+            `;
+        }
+        
+        // --- Main Rendering Logic ---
+        function renderDecoder(decoder) {
+            const statusMessage = $("status-message");
+            const mainTitle = $("main-title");
+            const flowContainer = $("flow-container");
+            const dataView = $("data-view");
+            const dataContent = $("data-content");
+
+            statusMessage.style.display = 'none';
+            flowContainer.innerHTML = ''; // Clear previous content
+
+            // Update main title with layer index
+            mainTitle.textContent = `Decoder ${decoder.layer_index} Attention Flow`;
+
+            // Define the sequence of blocks for the diagram
+            const diagramBlocks = [
+                { title: "Input", subtitle: "Token Embeddings", description: "The initial representation of words.", bgColor: "bg-gray-800", handler: () => {
+                    dataView.classList.remove('hidden');
+                    dataContent.innerHTML = `
+                        <h3 class="text-xl font-bold mb-4">Input Embeddings</h3>
+                        <p class="text-gray-400">This is the starting point of the attention layer. Each token (word) from the input is converted into a high-dimensional vector, or embedding. This vector captures the semantic meaning of the token.</p>
+                        <div class="formula-box mt-4">
+                            <p class="text-sm font-semibold">Concept:</p>
+                            <div class="text-center text-lg mt-2 mono">
+                                $$ \\text{Token} \\to \\text{Vector}(d_{\\text{model}}) $$
+                            </div>
+                        </div>
+                    `;
+                    MathJax.typeset();
+                }},
+                { title: "QKV Proj", subtitle: "Query, Key, Value", description: "Projecting input into Q, K, and V vectors.", bgColor: "bg-teal-800", handler: () => {
+                    dataView.classList.remove('hidden');
+                    dataContent.innerHTML = `
+                        <h3 class="text-xl font-bold mb-4">QKV Projection</h3>
+                        <p class="text-gray-400">The input embedding is multiplied by three different weight matrices ($W_Q, W_K, W_V$) to create three new vectors: the Query (Q), Key (K), and Value (V) vectors. These are essential for calculating attention scores.</p>
+                        <div class="formula-box mt-4">
+                            <p class="text-sm font-semibold">Formulas for Q, K, V:</p>
+                            <div class="text-center text-lg mt-2 mono">
+                                $$ Q = XW_Q, K = XW_K, V = XW_V $$
+                            </div>
+                        </div>
+                    `;
+                    MathJax.typeset();
+                }},
+            ];
+            
+            // Add the dynamic "Heads" block
+            const headsData = (decoder.heads || decoder.head || decoder.heads_list || []);
+            diagramBlocks.push({
+                title: `Heads (${headsData.length})`,
+                subtitle: "Individual Attention Heads",
+                description: "Merging the outputs of each head.",
+                bgColor: "bg-purple-800",
+                handler: () => {
+                    dataView.classList.remove('hidden');
+                    dataContent.innerHTML = `<h3 class="text-xl font-bold mb-4">Heads Overview</h3><p>Click on an individual head below to view its data.</p>`;
+                    
+                    const headsContainer = document.createElement('div');
+                    headsContainer.className = 'grid grid-cols-2 md:grid-cols-5 gap-4 mt-4';
+                    
+                    headsData.forEach(head => {
+                        const headButton = document.createElement('button');
+                        headButton.className = 'py-2 px-4 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors';
+                        headButton.textContent = `Head ${head.head}`;
+                        headButton.addEventListener('click', () => {
+                            dataContent.innerHTML = renderHeadTrie(head);
+                            MathJax.typeset(); // Render new formulas
+                        });
+                        headsContainer.appendChild(headButton);
+                    });
+                    dataContent.appendChild(headsContainer);
+                }
+            });
+            
+            // Add the remaining static blocks
+            const mergedData = decoder.merged || decoder.merge || {};
+            diagramBlocks.push(
+                { title: "Concat", subtitle: "Concatenate Heads", description: "Merging the outputs of each head.", bgColor: "bg-sky-800", handler: () => {
+                    dataView.classList.remove('hidden');
+                    dataContent.innerHTML = renderConcatData(mergedData);
+                    MathJax.typeset();
+                }},
+                { title: "W_O", subtitle: "Output Weighting", description: "Applying final linear projection.", bgColor: "bg-indigo-800", handler: () => {
+                    dataView.classList.remove('hidden');
+                    dataContent.innerHTML = renderWOData(mergedData);
+                    MathJax.typeset();
+                }},
+                { title: "Add & Norm", subtitle: "Residual Connection", description: "Adding the output to the input and normalizing.", bgColor: "bg-amber-800", handler: () => {
+                    dataView.classList.remove('hidden');
+                    dataContent.innerHTML = `
+                        <h3 class="text-xl font-bold mb-4">Residual Connection & LayerNorm</h3>
+                        <p class="text-gray-400">The final attention output is added to the original input embedding. This 'residual connection' helps with gradient flow. The result is then normalized using Layer Normalization, which stabilizes training.</p>
+                        <div class="formula-box mt-4">
+                            <p class="text-sm font-semibold">Formula for LayerNorm:</p>
+                            <div class="text-center text-lg mt-2 mono">
+                                $$ \\text{LayerNorm}(x) = \\frac{x - \\mu}{\\sqrt{\\sigma^2 + \\epsilon}} \\times \\gamma + \\beta $$
+                            </div>
+                        </div>
+                    `;
+                    MathJax.typeset();
+                }},
+                // FFN block with new behavior
+               { 
+  title: "FFN", 
+  subtitle: "Feed-Forward Network", 
+  description: "A simple neural network layer.", 
+  bgColor: "bg-orange-800", 
+  handler: () => {
+    dataView.classList.remove('hidden');
+    dataContent.innerHTML = `
+      <h3 class="text-xl font-bold mb-4">Feed-Forward Network (FFN)</h3>
+      <p class="text-gray-400">
+        The FFN is a simple, fully-connected neural network applied to each position independently. 
+        It consists of two linear transformations with a non-linear activation function (like ReLU) in between. 
+        It processes the information learned from the attention mechanism.
+      </p>
+      <p class="text-gray-400 mt-2">
+        To explore the FFN page, please 
+        <a id="ffnLink" class="text-blue-400 hover:text-blue-300 font-semibold underline">
+          Navigate to the decoder block’s FFN page
+        </a>.
+      </p>
+      <div class="formula-box mt-4">
+        <p class="text-sm font-semibold">Formula for FFN:</p>
+        <div class="text-center text-lg mt-2 mono">
+          $$ \\text{FFN}(x) = \\max(0, xW_1 + b_1)W_2 + b_2 $$
+        </div>
+      </div>
+    `;
+
+    // assign href dynamically
+    document.getElementById("ffnLink").href = FFN_PAGE;
+
+    MathJax.typeset();
+  }
+},
+                { title: "Output", subtitle: "Final Layer Output", description: "The final vector for this decoder layer.", bgColor: "bg-emerald-800", handler: () => {
+                    dataView.classList.remove('hidden');
+                    dataContent.innerHTML = `
+                        <h3 class="text-xl font-bold mb-4">Output</h3>
+                        <p class="text-gray-400">This is the final output of the entire decoder block. This vector is then passed as input to the next decoder layer in the transformer stack.</p>
+                    `;
+                    MathJax.typeset();
+                }}
+            );
+
+            // Render all blocks and arrows in the correct sequence
+            diagramBlocks.forEach((b, i) => {
+                flowContainer.appendChild(createDiagramBlock(b.title, b.subtitle, b.bgColor, b.handler));
+                if (i < diagramBlocks.length - 1) {
+                    flowContainer.appendChild(createArrow());
+                }
+            });
+        }
+
+        // --- Data Fetching Logic ---
+        async function fetchAndRenderData() {
+            const statusMessage = $("status-message");
+            try {
+                const res = await fetch(ENDPOINT, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json, text/plain;q=0.9, */*;q=0.8' },
+                    cache: 'no-store',
+                    mode: 'cors',
+                    credentials: USE_CREDENTIALS ? 'include' : 'omit'
+                });
+                if (!res.ok) {
+                    statusMessage.textContent = `HTTP ${res.status} ${res.statusText}`;
+                    return;
+                }
+                let data = await res.json();
+                
+                // Find the first decoder object in the data structure
+                const decoders = gatherDecoders(data);
+                const decoder = decoders.length ? decoders[0] : null;
+
+                if (!decoder) {
+                    statusMessage.textContent = 'No decoder object found.';
+                    return;
+                }
+                
+                renderDecoder(decoder);
+
+            } catch (e) {
+                console.error("Failed to fetch data:", e);
+                statusMessage.textContent = 'Failed to load data. Check the console for details.';
+            }
+        }
+
+        // --- Helper for discovering the decoder object in the JSON ---
+        function looksLikeDecoder(o) {
+            if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+            return ['layer_index', 'num_heads', 'head_dim', 'heads', 'head'].some(k => k in o);
+        }
+        function gatherDecoders(root, maxDepth = 12) {
+            const out = [];
+            const seen = new WeakSet();
+            (function walk(node, depth) {
+                if (!node || depth > maxDepth || typeof node !== 'object' || seen.has(node)) return;
+                seen.add(node);
+                if (looksLikeDecoder(node)) {
+                    out.push(node);
+                    return; // Stop here and don't go deeper into this object
+                }
+                if (Array.isArray(node)) {
+                    node.forEach(n => walk(n, depth + 1));
+                } else {
+                    Object.values(node).forEach(v => walk(v, depth + 1));
+                }
+            })(root, 0);
+            return out;
+        }
+
+        // Initial page load
+        window.onload = fetchAndRenderData;
+    </script>
+</body>
+</html>

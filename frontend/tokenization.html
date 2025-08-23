@@ -1,51 +1,168 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Tokenization Viewer</title>
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 16px; }
-    h2 { margin: 0 0 6px; }
-    .formula { font-style: italic; color:#555; margin: 0 0 12px; }
-    .sample-title { background:#e2e8f0; font-weight:600; padding:8px; border:1px solid #ddd; border-bottom:0; margin-top:12px; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 10px; }
-    th, td { border:1px solid #ddd; padding:6px; vertical-align: top; }
-    th { width: 160px; background:#fafafa; text-align:left; }
-    #out { min-height: 40px; }
-    .muted { color:#666; }
-  </style>
+<meta charset="UTF-8">
+<title>Tokenization Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --bg-dark: #0b1020;
+    --text-light: #e6eaf2;
+    --panel-bg: #121935;
+    --border-color: #27314a;
+    --token-bg: #2a3b67;
+    --pill-bg: #1f2a48;
+    --pill-border: #2a365b;
+    --active-bg: #3b2d52;
+    --formula-color: #9aa4b2;
+  }
+  body {
+    background-color: var(--bg-dark);
+    color: var(--text-light);
+    font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .container {
+    width: 100%;
+    max-width: 900px;
+  }
+  .card {
+    background-color: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .formula {
+    font-style: italic;
+    color: var(--formula-color);
+    margin-bottom: 1.5rem;
+    text-align: center;
+    font-size: 0.9rem;
+  }
+  .section-title {
+    font-weight: 600;
+    font-size: 1.125rem;
+    margin-bottom: 0.75rem;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.6rem;
+    background-color: var(--pill-bg);
+    border: 1px solid var(--pill-border);
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  }
+  .pill:hover, .pill.active {
+    background-color: var(--active-bg);
+    box-shadow: 0 0 0 2px #5b4685;
+  }
+  .tokens-grid, .ids-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    max-height: 250px;
+    overflow-y: auto;
+    padding-right: 10px; /* For scrollbar */
+  }
+  .text-input-wrap {
+    background-color: #0c1330;
+    border: 1px solid #263156;
+    border-radius: 8px;
+    padding: 1rem;
+    line-height: 1.6;
+  }
+  .text-input-word {
+    display: inline-block;
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .text-input-word:hover {
+    border-color: #86a2ff;
+  }
+  .text-input-word.active {
+    color: #86a2ff;
+    font-weight: 600;
+    border-color: #86a2ff;
+  }
+  .attention-mask-item {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+    background-color: #27314a;
+    transition: background-color 0.2s;
+  }
+  .attention-mask-item.active {
+    background-color: #4CAF50;
+  }
+</style>
 </head>
 <body>
-  <h2>Tokenization</h2>
-  <div class="formula">Formula: Text → tokenizer(x) → Tokens → IDs → pad/truncate→T → Attention Mask</div>
 
-  <div id="out" class="muted">Loading…</div>
+<div class="container">
+  <div class="formula">
+    <p>Text → tokenizer(x) → Tokens → IDs → pad/truncate→T → Attention Mask</p>
+  </div>
+
+  <div id="out">
+    <div class="text-center text-muted">Loading...</div>
+  </div>
+</div>
 
 <script>
 // ===== CONFIG =====
-const ENDPOINT = "/tokenization";   // <-- set your endpoint here
-const USE_CREDENTIALS = false;      // set true if API needs cookies and CORS allows credentials
+const ENDPOINT = "/tokenization";
+const USE_CREDENTIALS = false;
 
 // ===== Helpers =====
 function pickArray(payload){
   if (Array.isArray(payload)) return payload;
   if (payload && typeof payload === 'object') {
-    if (Array.isArray(payload.records)) return payload.records;  // your case
-    if (Array.isArray(payload.data))    return payload.data;
+    if (Array.isArray(payload.records)) return payload.records;
+    if (Array.isArray(payload.data)) return payload.data;
     if (Array.isArray(payload.samples)) return payload.samples;
-    if (Array.isArray(payload.result))  return payload.result;
-    if (Array.isArray(payload.items))   return payload.items;
+    if (Array.isArray(payload.result)) return payload.result;
+    if (Array.isArray(payload.items)) return payload.items;
   }
   return null;
 }
 
+// Function to handle highlighting
+function handleHighlight(groupClass, index, isActive) {
+    const group = document.querySelector(groupClass);
+    if (!group) return;
+
+    if (groupClass === '.input-text-container') {
+        const words = group.querySelectorAll('.text-input-word');
+        if (words[index]) {
+            words[index].classList.toggle('active', isActive);
+        }
+    } else {
+        const pills = group.querySelectorAll('.pill');
+        if (pills[index]) {
+            pills[index].classList.toggle('active', isActive);
+        }
+    }
+}
+
 function render(arr){
   const outEl = document.getElementById('out');
-  outEl.classList.remove('muted');
   outEl.innerHTML = '';
 
   if (!Array.isArray(arr) || arr.length === 0){
-    outEl.textContent = 'No items to display.';
+    outEl.innerHTML = '<div class="text-center text-muted">No items to display.</div>';
     return;
   }
 
@@ -58,34 +175,106 @@ function render(arr){
     const ids = Array.isArray(s?.token_ids) ? s.token_ids : (Array.isArray(s?.ids) ? s.ids : []);
     const mask = Array.isArray(s?.attention_mask) ? s.attention_mask : (Array.isArray(s?.mask) ? s.mask : []);
 
-    const title = document.createElement('div');
-    title.className = 'sample-title';
-    title.textContent = `Sample Index: ${sidx}`;
-    outEl.appendChild(title);
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-4 pb-2 border-b border-border-color">
+        <h3 class="text-xl font-semibold">Sample Index: ${sidx}</h3>
+        <span class="text-sm text-gray-400">Tokens: ${tokens.length}</span>
+      </div>
+      
+      <!-- Input Text -->
+      <div class="mb-6">
+        <h4 class="section-title">Input Text</h4>
+        <div class="text-input-wrap">
+          ${input_text.split(/\s+/).map((word, i) => `<span class="text-input-word mr-1" data-index="${i}">${word}</span>`).join('')}
+        </div>
+      </div>
 
-    const tbl = document.createElement('table');
-    const tbody = document.createElement('tbody');
+      <!-- Tokens -->
+      <div class="mb-6">
+        <h4 class="section-title">Tokens</h4>
+        <div class="tokens-grid">
+          ${tokens.map((token, i) => `<span class="pill token-pill" data-index="${i}">${token}</span>`).join('')}
+        </div>
+      </div>
 
-    const mkRow = (label, val) => {
-      const tr = document.createElement('tr');
-      const th = document.createElement('th'); th.textContent = label;
-      const td = document.createElement('td');
-      if (Array.isArray(val)) {
-        const cap = val.length > 200 ? val.slice(0,200).concat(`…(+${val.length-200} more)`) : val;
-        td.textContent = cap.join(', ');
-      } else {
-        td.textContent = String(val ?? '');
-      }
-      tr.appendChild(th); tr.appendChild(td);
-      return tr;
-    };
+      <!-- Token IDs -->
+      <div class="mb-6">
+        <h4 class="section-title">Token IDs</h4>
+        <div class="ids-grid">
+          ${ids.map((id, i) => `<span class="pill id-pill" data-index="${i}">${id}</span>`).join('')}
+        </div>
+      </div>
 
-    tbody.appendChild(mkRow('Input Text', input_text));
-    tbody.appendChild(mkRow('Tokens', tokens));
-    tbody.appendChild(mkRow('Token IDs', ids));
-    tbody.appendChild(mkRow('Attention Mask', mask));
-    tbl.appendChild(tbody);
-    outEl.appendChild(tbl);
+      <!-- Attention Mask -->
+      <div>
+        <h4 class="section-title">Attention Mask</h4>
+        <div class="flex flex-wrap gap-1">
+          ${mask.map(m => `<span class="attention-mask-item ${m == 1 ? 'active' : ''}"></span>`).join('')}
+        </div>
+      </div>
+    `;
+
+    outEl.appendChild(card);
+  });
+
+  // Add event listeners for highlighting
+  document.querySelectorAll('.text-input-word').forEach(wordEl => {
+    const index = parseInt(wordEl.dataset.index);
+    if (!isNaN(index)) {
+      const correspondingTokens = document.querySelectorAll(`.token-pill[data-index="${index}"]`);
+      const correspondingIds = document.querySelectorAll(`.id-pill[data-index="${index}"]`);
+
+      wordEl.addEventListener('mouseenter', () => {
+        wordEl.classList.add('active');
+        correspondingTokens.forEach(el => el.classList.add('active'));
+        correspondingIds.forEach(el => el.classList.add('active'));
+      });
+      wordEl.addEventListener('mouseleave', () => {
+        wordEl.classList.remove('active');
+        correspondingTokens.forEach(el => el.classList.remove('active'));
+        correspondingIds.forEach(el => el.classList.remove('active'));
+      });
+    }
+  });
+
+  document.querySelectorAll('.token-pill').forEach(pillEl => {
+    const index = parseInt(pillEl.dataset.index);
+    if (!isNaN(index)) {
+      const correspondingWord = document.querySelector(`.text-input-word[data-index="${index}"]`);
+      const correspondingId = document.querySelector(`.id-pill[data-index="${index}"]`);
+
+      pillEl.addEventListener('mouseenter', () => {
+        if (correspondingWord) correspondingWord.classList.add('active');
+        pillEl.classList.add('active');
+        if (correspondingId) correspondingId.classList.add('active');
+      });
+      pillEl.addEventListener('mouseleave', () => {
+        if (correspondingWord) correspondingWord.classList.remove('active');
+        pillEl.classList.remove('active');
+        if (correspondingId) correspondingId.classList.remove('active');
+      });
+    }
+  });
+
+  document.querySelectorAll('.id-pill').forEach(pillEl => {
+    const index = parseInt(pillEl.dataset.index);
+    if (!isNaN(index)) {
+      const correspondingWord = document.querySelector(`.text-input-word[data-index="${index}"]`);
+      const correspondingToken = document.querySelector(`.token-pill[data-index="${index}"]`);
+
+      pillEl.addEventListener('mouseenter', () => {
+        if (correspondingWord) correspondingWord.classList.add('active');
+        if (correspondingToken) correspondingToken.classList.add('active');
+        pillEl.classList.add('active');
+      });
+      pillEl.addEventListener('mouseleave', () => {
+        if (correspondingWord) correspondingWord.classList.remove('active');
+        if (correspondingToken) correspondingToken.classList.remove('active');
+        pillEl.classList.remove('active');
+      });
+    }
   });
 }
 
@@ -102,11 +291,10 @@ async function load(){
     });
 
     if (!res.ok) {
-      outEl.textContent = `HTTP ${res.status} ${res.statusText}`;
+      outEl.innerHTML = `<div class="text-center text-red-400">HTTP ${res.status} ${res.statusText}</div>`;
       return;
     }
 
-    // parse JSON (simple, with basic BOM/XSSI cleanup fallback)
     let payload;
     const text = await res.text();
     try {
@@ -118,15 +306,14 @@ async function load(){
 
     const arr = pickArray(payload);
     if (!arr) {
-      outEl.textContent = 'Parsed OK but could not locate an array (looked under records, data, samples, result, items).';
+      outEl.innerHTML = `<div class="text-center text-red-400">Parsed OK but could not locate a data array.</div>`;
       return;
     }
     render(arr);
 
   } catch (e) {
-    outEl.textContent = 'Failed to load.';
-    // If you want to debug silently, uncomment:
-    // console.error(e);
+    outEl.innerHTML = `<div class="text-center text-red-400">Failed to load.</div>`;
+    console.error(e);
   }
 }
 

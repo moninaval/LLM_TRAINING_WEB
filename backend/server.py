@@ -7,7 +7,10 @@ from pydantic import BaseModel
 from typing import List, Tuple, Optional
 import os, json, glob, re, time
 from fastapi.responses import FileResponse
+from typing import Any, Dict
+import os, json, tempfile, pathlib, time
 import uvicorn
+from fastapi import FastAPI, Body, Query, HTTPException, UploadFile, File, Form
 
 app = FastAPI()
 
@@ -26,10 +29,11 @@ if not os.path.exists(os.path.join(FRONTEND_DIR, "index.html")):
     print(f"[WARN] index.html not found at {FRONTEND_DIR}")
 
 # re-mount static with html=True (so /static/ serves index.html)
-app.mount("/static", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
+app.mount("/LearnLLMLive", StaticFiles(directory=FRONTEND_DIR, html=True), name="LearnLLMLive")
 
 # ---------- Config ----------
 LOG_DIR = os.environ.get("LOG_DIR", "LLM/log/current")  # where trainer writes logs
+CFG_PATH = os.environ.get("LOG_DIR", "LLM/log/current/config")  # where trainer writes logs
 
 # ---------- Training state (simple mock) ----------
 training_active = False
@@ -48,6 +52,27 @@ def _safe_mtime(path: Optional[str]) -> Optional[float]:
 def _read_json(path: str):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+def atomic_write_json(path: str, data: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix="config.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)  # atomic on same filesystem
+    finally:
+        try:
+            if os.path.exists(tmp): os.remove(tmp)
+        except Exception:
+            pass
+
+def deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            deep_merge(dst[k], v)
+        else:
+            dst[k] = v
+    return dst
 
 def _read_jsonl(path: str):
     out = []
@@ -92,6 +117,7 @@ def load_tokenization() -> Tuple[List[dict], Optional[str], Optional[float]]:
 def load_embeddings() -> Tuple[Optional[dict], Optional[str], Optional[float]]:
     """Return (object, path, mtime). Expected single JSON object."""
     p = os.path.join(LOG_DIR, "embedding.json")
+    print("Found ",p)
     if not os.path.exists(p):
         return None, None, None
     try:
@@ -147,6 +173,8 @@ def start_training(config: TrainConfig):
     global training_active, current_step
     training_active = True
     current_step = 0
+    # simulate step work
+    time.sleep(20)
     return {"status": "started", "config": config.dict()}
 
 @app.get("/training_step")
@@ -260,7 +288,7 @@ def decoder_head(layer_idx: int, head_idx: int):
     }
 @app.get("/output")
 def read_output():
-    print("fetching output")
+    print("NAVAL fetching output")
     path =  os.path.join(LOG_DIR, "output.json")
     if not os.path.exists(path):
         print("fetching output 1")
@@ -268,6 +296,19 @@ def read_output():
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return {"status": "ok", "data": data, "file": path, "updated_unix": os.path.getmtime(path)}
+
+@app.get("/FFN/{layer_idx}") 
+def read_output(layer_idx):
+    print("NAVAL FFN output")
+    fname = f"decoder_layer_{layer_idx}_FFN.json"
+    path =  os.path.join(LOG_DIR,fname)
+    if not os.path.exists(path):
+        print("fetching output 1")
+        return JSONResponse({"status": "error", "msg": "no output.json yet"}, status_code=404)
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return {"status": "ok", "data": data, "file": path, "updated_unix": os.path.getmtime(path)}
+
 
 @app.get("/loss")
 def read_loss():
@@ -281,7 +322,7 @@ def read_loss():
 
 @app.get("/optim")
 def read_optim():
-    print("NAVAL no optim implimented")
+    print("NAVAL optim implimented")
     path = os.path.join(LOG_DIR, "optim.json")
     if not os.path.exists(path):
         return {"status": "error", "msg": "no optim.json yet"}
@@ -297,6 +338,21 @@ def read_optim():
     with open(path, "r") as f:
         data = json.load(f)
     return {"status": "ok", "data": data, "file": path, "updated_unix": os.path.getmtime(path)}
+@app.post("/config", status_code=201)
+async def write_config(
+    payload: Dict[str, Any] = Body(..., description="Full config JSON or partial if merge=true"),
+    merge: bool = Query(False, description="Merge into existing config instead of replacing")
+):
+    print("NAVAL post config")
+    current: Dict[str, Any] = {}
+    if merge and os.path.exists(CFG_PATH):
+        with open(CFG_PATH, "r", encoding="utf-8") as f:
+            current = json.load(f)
+        new_cfg = deep_merge(current, payload)
+    else:
+        new_cfg = payload
+    atomic_write_json(CFG_PATH, new_cfg)
+    return {"status": "ok", "file": CFG_PATH, "merged": merge, "updated_unix": os.path.getmtime(CFG_PATH)}
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))  # use Render’s port
+    port = int(os.environ.get("PORT", 8000))  # Render gives $PORT
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)

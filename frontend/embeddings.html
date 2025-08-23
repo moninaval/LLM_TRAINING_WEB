@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Embeddings Viewer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #131a2a;
+      --muted: #8aa0b8;
+      --fg: #e7eef7;
+      --accent: #75c9f5;
+      --accent-2: #97f5a6;
+      --border: #22314a;
+      --danger: #ff8a8a;
+      --mono: ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--fg);
+      background: radial-gradient(1200px 800px at 10% -10%, #112240 0%, transparent 40%),
+        radial-gradient(1000px 700px at 110% 10%, #0f1d37 0%, transparent 45%),
+        var(--bg);
+      padding: 1rem;
+    }
+
+    header {
+      padding: 28px 20px 10px;
+      text-align: center;
+    }
+
+    header h1 {
+      margin: 0;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+      font-size: 2rem;
+    }
+
+    header p {
+      margin: 6px 0 0;
+      color: var(--muted);
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 18px auto 48px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.0));
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      padding: 18px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: #0e1627;
+      color: var(--fg);
+      padding: 10px 14px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.06s ease, border-color 0.2s ease, background-color 0.2s ease;
+    }
+
+    .btn:hover {
+      border-color: #395175;
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .btn.accent {
+      background: linear-gradient(180deg, #132742, #0f1e34);
+      border-color: #365a7f;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #0d1525;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #0f1b31;
+      color: #c8d6e5;
+      text-align: left;
+      font-size: 13px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      letter-spacing: .02em;
+    }
+
+    tbody td {
+      border-bottom: 1px dashed #1c2a44;
+      padding: 10px 12px;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    tbody tr:nth-child(2n) td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .field {
+      color: #d8e6f7;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .value {
+      color: #e9f1fb;
+    }
+
+    .mono {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: #0a1221;
+      border: 1px solid #1a2a45;
+      padding: 8px 10px;
+      border-radius: 10px;
+      width: 100%;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .vector-cell {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: 120px;
+    }
+
+    .copy-btn {
+      appearance: none;
+      position: absolute;
+      right: 10px;
+      top: 8px;
+      font-family: var(--sans);
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid #2b3d5c;
+      background: #0f1c33;
+      color: #cfe7ff;
+      cursor: pointer;
+    }
+
+    .copy-btn:hover {
+      border-color: #3a5682;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #0d1a31;
+      border: 1px solid #274065;
+      color: #b8d7ff;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .ok {
+      color: var(--accent-2);
+    }
+
+    .bad {
+      color: var(--danger);
+    }
+
+    .vector-canvas {
+      border: 1px solid #3c5478;
+      border-radius: 8px;
+      background-color: #0d1a31;
+    }
+
+    .vector-pill {
+      display: inline-flex;
+      background-color: #27314a;
+      border-color: #3a5682;
+      color: #92aee2;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Embeddings for one random token</h1>
+    <p>Visualizing a random token's embedding vector.</p>
+  </header>
+
+  <div class="container">
+    <div class="card">
+      <div class="toolbar">
+        <div class="left">
+          <button class="btn accent" id="refreshBtn" type="button">↻ Refresh</button>
+        </div>
+        <div class="status" id="status">Ready.</div>
+      </div>
+
+      <div class="table-wrap">
+        <table aria-label="Embeddings table">
+          <thead>
+            <tr>
+              <th style="width: 260px;">Field</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <!-- Rows injected here -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ENDPOINT = '/embeddings';
+
+    const statusEl = document.getElementById('status');
+    const tbody = document.getElementById('tbody');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    refreshBtn.addEventListener('click', load);
+    document.addEventListener('DOMContentLoaded', load);
+
+    async function load() {
+      setStatus('Loading…');
+      try {
+        const res = await fetch(ENDPOINT, {
+          headers: {
+            'Accept': 'application/json, text/plain'
+          }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const raw = await res.text();
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          data = raw;
+        }
+
+        const rows = normalizeToRows(data);
+        renderRows(rows);
+        setStatus(`Loaded ✓ (${rows.length} rows)`);
+      } catch (err) {
+        console.error(err);
+        setStatus('Error: ' + err.message);
+        renderRows([]);
+      }
+    }
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    function isFieldValueArray(obj) {
+      return Array.isArray(obj) && obj.length && typeof obj[0] === 'object' && obj[0] && 'Field' in obj[0] && 'Value' in obj[0];
+    }
+
+    function normalizeToRows(input) {
+      if (typeof input === 'string') {
+        try {
+          input = JSON.parse(input);
+        } catch {
+          /* keep as string */ }
+      }
+
+      if (isFieldValueArray(input)) {
+        return input.map(x => ({
+          Field: String(x.Field),
+          Value: stringifyValue(x.Value)
+        }));
+      }
+
+      const unwrapKeys = ['data', 'payload', 'result', 'embedding', 'embeddings'];
+      if (input && typeof input === 'object') {
+        for (const k of unwrapKeys) {
+          if (k in input) {
+            input = input[k];
+            break;
+          }
+        }
+      }
+
+      const rows = [];
+      const add = (f, v) => rows.push({
+        Field: f,
+        Value: stringifyValue(v)
+      });
+
+      if (Array.isArray(input)) {
+        if (input.length && typeof input[0] === 'object' && !Array.isArray(input[0])) {
+          input.forEach((obj, i) => flattenObject(obj, `root[${i}]`, add));
+        } else {
+          add('root', input);
+        }
+        return rows;
+      }
+
+      if (input && typeof input === 'object') {
+        flattenObject(input, '', add);
+
+        const vec = rows.find(r => r.Field === 'sample.vector');
+        const vlen = rows.find(r => r.Field === 'sample.vector_len');
+        if (vec && vlen) {
+          const inner = vec.Value.replace(/^\[/, '').replace(/\]$/, '');
+          const actual = inner === '' ? 0 : inner.split(',').length;
+          rows.push({
+            Field: '_check.vector_length_matches',
+            Value: String(Number(vlen.Value) === actual)
+          });
+        }
+        return rows;
+      }
+
+      return [{
+        Field: 'raw',
+        Value: stringifyValue(input)
+      }];
+    }
+
+    function stringifyValue(v) {
+      if (v === null || v === undefined) return String(v);
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      if (Array.isArray(v)) return '[' + v.join(',') + ']';
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return String(v);
+      }
+    }
+
+    function flattenObject(obj, prefix, add) {
+      for (const [k, v] of Object.entries(obj)) {
+        const key = prefix ? `${prefix}.${k}` : k;
+        if (k === 'vector' && Array.isArray(v) && (prefix.endsWith('sample') || key.endsWith('sample.vector'))) {
+          add('sample.vector', v);
+          continue;
+        }
+        if (Array.isArray(v)) {
+          if (v.length && (typeof v[0] === 'number' || typeof v[0] === 'string' || typeof v[0] === 'boolean')) {
+            add(key, '[' + v.join(',') + ']');
+          } else {
+            add(key, v);
+          }
+        } else if (v && typeof v === 'object') {
+          flattenObject(v, key, add);
+        } else {
+          add(key, v);
+        }
+      }
+    }
+
+    function drawVector(canvas, vector) {
+      if (!vector || vector.length === 0) return;
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const width = canvas.width / dpr;
+      const height = canvas.height / dpr;
+
+      ctx.clearRect(0, 0, width, height);
+
+      const minVal = Math.min(...vector);
+      const maxVal = Math.max(...vector);
+      const valRange = maxVal - minVal;
+
+      ctx.strokeStyle = '#75c9f5';
+      ctx.lineWidth = 1.5;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+
+      const xScale = width / (vector.length - 1);
+      const yStart = height - ((vector[0] - minVal) / valRange) * height;
+      ctx.moveTo(0, yStart);
+
+      for (let i = 1; i < vector.length; i++) {
+        const x = i * xScale;
+        const y = height - ((vector[i] - minVal) / valRange) * height;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    function renderRows(rows) {
+      tbody.innerHTML = '';
+      for (const {
+          Field,
+          Value
+        } of rows) {
+        const tr = document.createElement('tr');
+        const tdF = document.createElement('td');
+        tdF.className = 'field';
+
+        const fieldMap = {
+          'sample.shape': 'The shape of the embedding tensor: [batch_size, sequence_length, vector_dimension].',
+          'sample.token_index': 'The index of this token in the sequence.',
+          'sample.token_id': 'The unique ID for this token from the model\'s vocabulary.',
+          'sample.vector_len': 'The dimension of the embedding vector.',
+          'sample.vector': 'The dense vector representation of the token.',
+          'positioning.type': 'The type of positional encoding used.',
+          'note': 'Additional information about the embedding.',
+          'formula': 'The mathematical formula for the embedding calculation.',
+        };
+
+        let label = Field;
+        if (Field in fieldMap) {
+          label = `<span title="${fieldMap[Field]}">${Field}</span>`;
+        }
+        tdF.innerHTML = label;
+
+        const tdV = document.createElement('td');
+        tdV.className = 'value';
+
+        if (Field === 'sample.vector' && Array.isArray(Value)) {
+          tdV.classList.add('vector-cell');
+          const canvas = document.createElement('canvas');
+          canvas.className = 'vector-canvas w-full h-24';
+          tdV.appendChild(canvas);
+          drawVector(canvas, Value);
+
+          const btn = document.createElement('button');
+          btn.className = 'copy-btn';
+          btn.type = 'button';
+          btn.textContent = 'Copy';
+          btn.addEventListener('click', () => {
+            const tempInput = document.createElement('textarea');
+            tempInput.value = '[' + Value.join(',') + ']';
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            btn.textContent = 'Copied!';
+            setTimeout(() => (btn.textContent = 'Copy'), 1200);
+          });
+          tdV.appendChild(btn);
+
+        } else if (Field === 'sample.token_id' && rows.find(r => r.Field === 'sample.token_str')) {
+          const tokenStr = rows.find(r => r.Field === 'sample.token_str').Value;
+          tdF.textContent = 'Token & ID';
+          const pill = document.createElement('span');
+          pill.className = 'pill vector-pill';
+          pill.textContent = `${tokenStr} (${Value})`;
+          tdV.appendChild(pill);
+        } else if (Field === 'sample.token_str') {
+          continue; // Don't render this row separately
+        } else {
+          if (typeof Value === 'string' && (Value.startsWith('[') || Value.startsWith('{'))) {
+            const code = document.createElement('code');
+            code.className = 'mono';
+            code.textContent = Value;
+            tdV.appendChild(code);
+          } else {
+            tdV.textContent = Value;
+          }
+        }
+
+        tr.append(tdF, tdV);
+        tbody.appendChild(tr);
+      }
+    }
+  </script>
+</body>
+
+</html>

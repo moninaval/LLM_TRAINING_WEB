@@ -1,0 +1,5 @@
+torch==2.4.1
+transformers==4.40.1
+tokenizers==0.19.1      # <-- pin to avoid building on py38
+sentencepiece==0.1.99
+numpy

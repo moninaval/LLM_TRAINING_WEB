@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Transformer Output Explorer</title>
+    <!-- Load Tailwind CSS for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load KaTeX for rendering math formulas -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" xintegrity="sha384-n8MVd4RsNIU0KOVEMcADelegTRmortBCqcZogxmaDKszYLiLectureo7CortfNEackfEVgNiEgXgl/6gUgdIMsvUiw" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" xintegrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUbKyIyUH" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" xintegrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+    <style>
+        :root {
+            --bg: #0b1020; --card: #131a2a; --muted: #8aa0b8; --fg: #e7eef7;
+            --accent: #75c9f5; --border: #22314a;
+            --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        }
+        body {
+            margin: 0; font-family: var(--sans); color: var(--fg); background: var(--bg);
+        }
+        .container { max-width: 1400px; margin: 24px auto; padding: 1rem; }
+        .main-layout { display: grid; grid-template-columns: 400px 1fr; gap: 24px; align-items: flex-start; }
+        .left-column { position: sticky; top: 24px; }
+        .right-column { display: flex; flex-direction: column; gap: 24px; }
+        .info-box, .card {
+            background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.0));
+            border: 1px solid var(--border); border-radius: 18px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25); padding: 20px;
+        }
+        h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+        h1 { font-size: 2rem; }
+        h2 { font-size: 1.25rem; margin-bottom: 12px; }
+        .info-box p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
+        .info-box p + p { margin-top: 12px; }
+        .status { color: var(--muted); font-size: 14px; text-align: right; }
+        .table-wrap {
+            overflow: auto; border: 1px solid var(--border);
+            border-radius: 12px; background: #0d1525;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        thead th {
+            position: sticky; top: 0; background: #0f1b31; color: #c8d6e5;
+            text-align: left; font-size: 13px; padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        tbody td {
+            border-bottom: 1px solid #1c2a44;
+            padding: 12px; vertical-align: top;
+        }
+        .stage-cell { display: flex; flex-direction: column; gap: 0.5rem; }
+        .stage-name { font-weight: 700; font-size: 1rem; color: var(--accent); }
+        .stage-desc { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+        .mono {
+            font-family: var(--mono); font-size: 12px; background: #0a1221;
+            border: 1px solid #1a2a45; padding: 8px 10px; border-radius: 10px;
+            display: block; width: 100%; white-space: pre-wrap; word-break: break-all;
+        }
+        .katex-display { margin: 0.5em 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-layout">
+            <aside class="left-column">
+                <div class="info-box">
+                    <h2>The Final Step: Prediction</h2>
+                    <p>After passing through all the decoder layers, the model has a final, context-rich vector for each token. But this vector isn't a prediction yet.</p>
+                    <p>The **LM Head** (Language Model Head) is responsible for this final transformation. It takes the processed vector and projects it into a huge vector of raw scores called **logits**, with one score for every possible token in the model's vocabulary.</p>
+                    <p>Finally, the **softmax** function is applied to these logits to convert them into clean probabilities that sum to 1, representing the model's final prediction for the next token.</p>
+                </div>
+                <div class="status mt-4" id="status">Ready.</div>
+            </aside>
+
+            <main class="right-column">
+                <div class="card">
+                    <h2 class="text-xl font-bold mb-4">Output Flow</h2>
+                    <div class="table-wrap">
+                        <table aria-label="Transformer Output Stages">
+                            <thead>
+                                <tr>
+                                    <th class="w-1/3">Stage</th>
+                                    <th class="w-2/3">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stageTbody">
+                                <!-- Rows will be injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="info-box">
+                    <h2>Next Step: Calculating the Loss</h2>
+                    <p>With the final probabilities calculated, the model can now determine how "wrong" its prediction was. It compares the probability it assigned to the **correct** next token against the ideal probability of 1.0. This difference is used to calculate the **loss**, which then drives the entire learning process.</p>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const ENDPOINT = '/output';
+        const stageTbody = document.getElementById('stageTbody');
+        const statusEl = document.getElementById('status');
+
+        // --- UPDATED: Explanations and Formulas for each stage ---
+        const stageExplanations = {
+            'final_norm': {
+                description: 'LayerNorm (or RMSNorm) applied to the hidden state, for stability..',
+                formula: 'Norm(xL​) ∈ shape(batch×seq_len×dmodel)'
+            },
+            'lm_head_logits_topk': {
+                description: 'Projection of normalized state into vocabulary space, softmaxed, and top-k tokens logged..',
+                formula: 'logits=x^WT,p=softmax(logits) ,Top-k=argmaxk​p'
+            },
+            'transformer_out (pre_final_norm)': {
+                description: 'Last hidden state after all decoder layers, before final normalization.',
+                formula: 'xL ​∈ shape(batch×seq_len×dmodel)​'
+            }
+        };
+
+        // --- USER'S ORIGINAL DATA PARSING LOGIC ---
+        function setStatus(msg){ var s=document.getElementById('status'); if(s) s.textContent=msg; }
+        function tryParse(x){ if(typeof x==='string'){ try{ return JSON.parse(x); }catch(e){ return x; } } return x; }
+        function isObj(x){ return x && typeof x==='object' && !Array.isArray(x); }
+        function isPrim(x){ var t=typeof x; return t==='string'||t==='number'||t==='boolean'; }
+        function fmt(v){
+            if(v===null||v===undefined) return String(v);
+            if(isPrim(v)) return String(v);
+            if(Array.isArray(v)){
+                var allPrim=true; for(var i=0;i<v.length;i++){ if(!isPrim(v[i])){ allPrim=false; break; } }
+                return allPrim ? ('['+v.join(', ')+']') : JSON.stringify(v);
+            }
+            try{ return JSON.stringify(v); }catch(e){ return String(v); }
+        }
+
+        function pickValueFromStageObj(obj){
+            var priority=['value','vector','concat_vector','topk','wo_output','logits','scores','prob','score'];
+            for(var i=0;i<priority.length;i++){ var k=priority[i]; if(Object.prototype.hasOwnProperty.call(obj,k)) return fmt(obj[k]); }
+            for(var k in obj){ if(k!=='name' && Object.prototype.hasOwnProperty.call(obj,k)) return fmt(obj[k]); }
+            return '';
+        }
+
+        function extractStages(root){
+            var found=[];
+            function walk(n){
+                if(!n) return;
+                if(Array.isArray(n)){
+                    if(n.length && isObj(n[0]) && ('name' in n[0])) found.push({type:'objArray', arr:n});
+                    if(n.length>=2 && (typeof n[0]==='string'||typeof n[0]==='number')) found.push({type:'pairs', arr:n});
+                    for(var i=0;i<n.length;i++) walk(n[i]);
+                    return;
+                }
+                if(isObj(n)){
+                    if(Array.isArray(n.stage))   found.push({type:'unknown', arr:n.stage});
+                    if(Array.isArray(n.stages)) found.push({type:'unknown', arr:n.stages});
+                    if(isObj(n.stage))           found.push({type:'map', obj:n.stage});
+                    for(var key in n){ if(Object.prototype.hasOwnProperty.call(n,key)) walk(n[key]); }
+                }
+            }
+            walk(root);
+            if(!found.length) return [];
+            var pref=null;
+            for(var i=0;i<found.length;i++){ if(found[i].type==='objArray'){ pref=found[i]; break; } }
+            if(!pref){ for(i=0;i<found.length;i++){ if(found[i].type==='pairs'){ pref=found[i]; break; } } }
+            if(!pref){ for(i=0;i<found.length;i++){ if(found[i].type==='unknown'){ pref=found[i]; break; } } }
+            if(!pref) pref=found[0];
+
+            if(pref.type==='map'){
+                var out=[]; for(var name in pref.obj){ if(Object.prototype.hasOwnProperty.call(pref.obj,name)) out.push({name:String(name), value:fmt(pref.obj[name])}); }
+                return out;
+            }
+
+            var arr=pref.arr;
+            if(pref.type==='pairs' && !(arr.length && isObj(arr[0]) && ('name' in arr[0]))){
+                var out2=[]; for(i=0;i<arr.length;i+=2){ var n=arr[i]; var v=(i+1<arr.length)?arr[i+1]:''; if(typeof n==='string'||typeof n==='number') out2.push({name:String(n), value:fmt(v)}); }
+                return out2;
+            }
+
+            var out3=[]; for(i=0;i<arr.length;i++){ var obj=arr[i]||{}; var nm=('name' in obj)?String(obj.name):('stage['+i+']'); var val=pickValueFromStageObj(obj); out3.push({name:nm, value:val}); }
+            return out3;
+        }
+        // --- END OF USER'S ORIGINAL LOGIC ---
+
+        function renderStages(rows) {
+            if (!stageTbody) return;
+            stageTbody.innerHTML = '';
+            for (const row of rows) {
+                const tr = document.createElement('tr');
+                const tdN = document.createElement('td');
+                tdN.className = 'stage-cell';
+                
+                const explanation = stageExplanations[row.name.toLowerCase()];
+                let nameHtml = `<div class="stage-name">${row.name}</div>`;
+                if (explanation) {
+                    nameHtml += `<p class="stage-desc">${explanation.description}</p>`;
+                    if (explanation.formula) {
+                        nameHtml += `<div>$$${explanation.formula}$$</div>`;
+                    }
+                }
+                tdN.innerHTML = nameHtml;
+
+                const tdV = document.createElement('td');
+                const val = row.value || '';
+                const code = document.createElement('code');
+                code.className = 'mono';
+                code.textContent = val;
+                tdV.appendChild(code);
+                
+                tr.appendChild(tdN);
+                tr.appendChild(tdV);
+                stageTbody.appendChild(tr);
+            }
+            renderMathInElement(stageTbody);
+        }
+
+        async function load() {
+            setStatus('Loading…');
+            try {
+                const res = await fetch(ENDPOINT, { headers: { 'Accept': 'application/json, text/plain' } });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                let data = tryParse(await res.text());
+                data = tryParse(data);
+                
+                const stages = extractStages(data);
+                renderStages(stages);
+                setStatus('Loaded successfully');
+            } catch (err) {
+                console.error(err);
+                setStatus('Error: ' + err.message);
+                renderStages([]);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', load);
+    </script>
+</body>
+</html>
