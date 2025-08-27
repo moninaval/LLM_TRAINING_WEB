@@ -4,6 +4,9 @@
   <meta charset="utf-8"/>
   <title>Decoder Layer 0 Viewer</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <!-- MathJax for formulas -->
+  <script id="MathJax-script" async
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
   <style>
     body {
       font-family: 'Inter', sans-serif;
@@ -12,9 +15,67 @@
       margin: 0;
       padding: 20px;
     }
-    h1, h2 {
-      text-align: center;
-      margin: 10px 0;
+    h1, h2 { text-align: center; margin: 10px 0; }
+
+    /* --- Top progress bar (like NProgress) --- */
+    .top-progress {
+      position: fixed; top: 0; left: 0; height: 3px; width: 100%;
+      background: transparent; z-index: 9999; pointer-events: none;
+    }
+    .top-progress .bar {
+      position: absolute; left: 0; top: 0; height: 100%; width: 0%;
+      background: linear-gradient(90deg, #60a5fa, #34d399);
+      transition: width .15s ease;
+      box-shadow: 0 0 8px rgba(52,211,153,.6);
+    }
+
+    /* --- Center overlay with spinner & text --- */
+    .loading-overlay {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      background: rgba(255,255,255,.8); z-index: 9998;
+      backdrop-filter: blur(2px);
+    }
+    .loading-card {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+      padding: 14px 16px; min-width: 280px; max-width: 90%;
+      box-shadow: 0 8px 30px rgba(0,0,0,.08);
+      display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center;
+    }
+    .loading-overlay[hidden] { display: none !important; }
+
+    .spinner {
+      width: 28px; height: 28px; border: 3px solid #e5e7eb; border-top-color: #6366f1;
+      border-radius: 50%; animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 14px; color: #111; }
+    .loading-sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .loading-bar-wrap { grid-column: 1 / -1; margin-top: 8px; }
+    .loading-bar {
+      height: 6px; width: 100%; background: #f3f4f6; border-radius: 999px; overflow: hidden;
+    }
+    .loading-bar > div {
+      height: 100%; width: 0%; background: linear-gradient(90deg, #60a5fa, #34d399);
+      transition: width .12s ease;
+    }
+    .indeterminate .loading-bar > div {
+      width: 30%; animation: indet 1.2s ease-in-out infinite;
+    }
+    @keyframes indet {
+      0% { transform: translateX(-30%); }
+      50% { transform: translateX(100%); }
+      100% { transform: translateX(220%); }
+    }
+
+    /* Layout helpers */
+    .top-wrap{
+      display: grid;
+      grid-template-columns: 1fr minmax(260px, 380px);
+      gap: 18px;
+      align-items: start;
+    }
+    @media (max-width: 1060px){
+      .top-wrap{ grid-template-columns: 1fr; }
     }
 
     /* Flow diagram styles */
@@ -22,7 +83,7 @@
       display: flex;
       justify-content: center;
       align-items: stretch;
-      margin: 20px 0 40px 0;
+      margin: 20px 0 20px 0;
       gap: 15px;
       flex-wrap: wrap;
     }
@@ -35,7 +96,15 @@
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
       text-align: center;
       min-width: 140px;
+      cursor: pointer;
+      user-select: none;
+      transition: transform .12s ease, box-shadow .12s ease, outline-color .12s ease, opacity .12s ease;
+      outline: 3px solid transparent;
     }
+    .flow-box:focus{ outline-color:#3b82f6; }
+    .flow-box:hover{ transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0,0,0,0.12); }
+    .flow-box.selected{ outline-color:#111827; transform: translateY(-3px); }
+    .flow-box.loading { opacity: .6; pointer-events: none; }
     .flow-box small {
       display: block;
       margin-top: 6px;
@@ -50,106 +119,96 @@
     .wo-box { background: #fbcfe8; }
     .residual-box { background: #dcfce7; }
     .ffn-box { background: #fef9c3; }
-    .arrow {
-      font-size: 18px;
-      font-weight: bold;
-      color: #666;
-      align-self: center;
-    }
+    .arrow { font-size: 18px; font-weight: bold; color: #666; align-self: center; }
 
-    /* Head buttons */
+    /* Step side panel */
+    .step-panel {
+      position: sticky; top: 16px; background: #ffffff; border: 1px solid #e5e7eb;
+      border-radius: 12px; padding: 16px 16px 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      min-height: 120px;
+    }
+    .step-panel h3{ margin: 0 0 8px; font-size: 16px; }
+    .step-panel .shape-line{ font-size: 12px; color:#374151; margin-bottom: 8px; background:#f3f4f6; padding:6px 8px; border-radius: 8px; }
+    .step-panel .blurb{ font-size: 13px; color:#1f2937; margin: 8px 0 10px; }
+    .step-panel .eq { background: #f9fafb; border: 1px dashed #e5e7eb; border-radius: 8px; padding: 8px 10px; margin: 8px 0; font-size: 14px; overflow-x: auto; }
+    .spacer{ height: 4px; }
+
+    /* Heads Overview */
     .heads-overview {
-      text-align: center;
-      margin: 20px auto;
-      padding: 15px;
-      border-radius: 10px;
-      background: #eef2ff;
-      max-width: 800px;
+      text-align: center; margin: 20px auto; padding: 15px;
+      border-radius: 10px; background: #eef2ff; max-width: 800px;
     }
     .head-btn {
-      display: inline-block;
-      margin: 8px;
-      padding: 10px 20px;
-      border-radius: 8px;
-      background: #6366f1;
-      color: white;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background 0.2s;
+      display: inline-block; margin: 8px; padding: 10px 20px;
+      border-radius: 8px; background: #6366f1; color: white;
+      font-weight: bold; cursor: pointer; transition: background 0.2s, opacity .12s;
     }
-    .head-btn:hover {
-      background: #4f46e5;
-    }
+    .head-btn:hover { background: #4f46e5; }
+    .head-btn.loading { opacity: .6; pointer-events: none; }
 
     /* Detail sections */
     .head-detail {
-      margin: 30px auto;
-      padding: 20px;
-      border: 1px solid #ddd;
-      border-radius: 10px;
-      background: white;
-      max-width: 1100px;
+      margin: 30px auto; padding: 20px; border: 1px solid #ddd;
+      border-radius: 10px; background: white; max-width: 1100px;
     }
-    .plot {
-      margin: 20px 0;
-    }
+    .plot { margin: 20px 0; }
 
     /* Accordion for tokens */
-    .accordion {
-      margin-top: 15px;
-      border-top: 1px solid #ddd;
-    }
-    .accordion-item {
-      border-bottom: 1px solid #eee;
-    }
+    .accordion { margin-top: 15px; border-top: 1px solid #ddd; }
+    .accordion-item { border-bottom: 1px solid #eee; }
     .accordion-header {
-      padding: 10px;
-      cursor: pointer;
-      background: #f3f4f6;
-      font-weight: 600;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      padding: 10px; cursor: pointer; background: #f3f4f6; font-weight: 600;
+      display: flex; justify-content: space-between; align-items: center;
     }
-    .accordion-header:hover {
-      background: #e5e7eb;
-    }
-    .accordion-header .icon {
-      transition: transform 0.2s;
-    }
-    .accordion-header.active .icon {
-      transform: rotate(90deg);
-    }
-    .accordion-body {
-      display: none;
-      padding: 10px;
-      font-size: 13px;
-      background: #fafafa;
-    }
-    .vector {
-      white-space: nowrap;
-      overflow-x: auto;
-      font-family: monospace;
-      background: #f1f5f9;
-      padding: 5px;
-      border-radius: 4px;
-    }
-    .expand-btn {
-      display: inline-block;
-      margin-top: 5px;
-      font-size: 12px;
-      color: #2563eb;
-      cursor: pointer;
-    }
+    .accordion-header:hover { background: #e5e7eb; }
+    .accordion-header .icon { transition: transform 0.2s; }
+    .accordion-header.active .icon { transform: rotate(90deg); }
+    .accordion-body { display: none; padding: 10px; font-size: 13px; background: #fafafa; }
+    .vector { white-space: nowrap; overflow-x: auto; font-family: monospace; background: #f1f5f9; padding: 5px; border-radius: 4px; }
+    .expand-btn { display: inline-block; margin-top: 5px; font-size: 12px; color: #2563eb; cursor: pointer; }
+
+    .muted { color:#6b7280; font-size:12px; }
   </style>
 </head>
 <body>
+  <!-- Top progress -->
+  <div id="topProgress" class="top-progress" aria-hidden="true">
+    <div class="bar" id="topProgressBar"></div>
+  </div>
+
+  <!-- Center overlay -->
+  <div id="overlay" class="loading-overlay" hidden>
+    <div class="loading-card">
+      <div class="spinner" aria-hidden="true"></div>
+      <div>
+        <div class="loading-text" id="overlayTitle">Downloading decoder JSON…</div>
+        <div class="loading-sub" id="overlaySub">Starting…</div>
+      </div>
+      <div class="loading-bar-wrap">
+        <div class="loading-bar"><div id="overlayBar"></div></div>
+      </div>
+    </div>
+  </div>
+
   <h1>Decoder Layer 0</h1>
   <h2>Flow + Attention Visualization</h2>
 
-  <!-- Flow Diagram -->
-  <div class="flow-container" id="flowDiagram">
-    <!-- Filled dynamically with shapes -->
+  <div class="top-wrap">
+    <div>
+      <!-- Flow Diagram -->
+      <div class="flow-container" id="flowDiagram"></div>
+      <div class="muted" style="text-align:center;margin-top:-6px;">
+        Click any box to see formulas and a short explanation.
+      </div>
+    </div>
+
+    <!-- Sticky formula panel -->
+    <aside id="stepPanel" class="step-panel" aria-live="polite">
+      <h3>Pick a step in the flow</h3>
+      <div class="blurb">Select a box to view the math used at that stage. Shapes are shown with your live dimensions.</div>
+      <div class="eq">For example, attention uses \( \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_\text{head}}}+M\right)V \) with a causal mask \(M\).</div>
+      <div class="spacer"></div>
+    </aside>
   </div>
 
   <!-- Heads Overview -->
@@ -162,80 +221,325 @@
   <div id="headDetails"></div>
 
   <script>
+    /* ==================== Progress & Overlay helpers ==================== */
+    const topBar = document.getElementById('topProgressBar');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlaySub = document.getElementById('overlaySub');
+    const overlayBar = document.getElementById('overlayBar');
+    let indeterminateTimer = null;
+
+    function showOverlay(title = "Loading…", sub = "", indeterminate = false) {
+      overlayTitle.textContent = title;
+      overlaySub.textContent = sub || "";
+      overlay.hidden = false;
+      if (indeterminate) {
+        overlay.classList.add('indeterminate');
+        if (!indeterminateTimer) {
+          indeterminateTimer = setInterval(() => {
+            // keep top bar moving a bit
+            const w = parseFloat(topBar.style.width || "0");
+            const next = (w + Math.random() * 10) % 90;
+            topBar.style.width = next + "%";
+          }, 300);
+        }
+      } else {
+        overlay.classList.remove('indeterminate');
+      }
+    }
+    function hideOverlay() {
+      overlay.hidden = true;
+      overlay.classList.remove('indeterminate');
+      if (indeterminateTimer) { clearInterval(indeterminateTimer); indeterminateTimer = null; }
+    }
+    function setTopProgress(p) {
+      if (typeof p === "number") {
+        const pct = Math.max(0, Math.min(100, p*100));
+        topBar.style.width = pct + "%";
+      }
+    }
+    function doneTopProgress() {
+      topBar.style.width = "100%";
+      setTimeout(() => { topBar.style.width = "0%"; }, 300);
+    }
+    function setOverlayProgress(p, bytes, total) {
+      if (typeof p === "number") {
+        overlayBar.style.width = Math.max(0, Math.min(100, p*100)) + "%";
+        if (total) {
+          const toMB = x => (x/1048576).toFixed(1);
+          overlaySub.textContent = `${toMB(bytes)} MB / ${toMB(total)} MB`;
+        } else {
+          overlaySub.textContent = Math.round(p*100) + "%";
+        }
+      }
+    }
+
+    // Fetch JSON with progress (uses content-length if available)
+    async function fetchJSONWithProgress(url, onProgress) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      const len = res.headers.get("Content-Length");
+      if (!res.body) {
+        onProgress?.(null, 0, 0); // indeterminate
+        const data = await res.json();
+        onProgress?.(1, 1, 1);
+        return data;
+      }
+      if (!len) {
+        // No content-length -> indeterminate
+        onProgress?.(null, 0, 0);
+        const data = await res.json();
+        onProgress?.(1, 1, 1);
+        return data;
+      }
+      const total = parseInt(len, 10);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let received = 0, chunks = "";
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        chunks += decoder.decode(value, {stream: true});
+        onProgress?.(Math.min(received/total, 0.98), received, total);
+      }
+      chunks += decoder.decode();
+      onProgress?.(1, total, total);
+      return JSON.parse(chunks);
+    }
+
+    /* ==================== Your original logic, with tiny hooks ==================== */
+
+    // Helper to typeset math after we inject formulas
+    function typeset() {
+      if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise();
+    }
+
+    function makeStepInfo(dims){
+      const {B, T, h, d_head, d_model, d_ff} = dims;
+      return {
+        input: {
+          title: "Input (hidden state)",
+          shape: `[B=${B}, T=${T}, d_model=${d_model}]`,
+          eqs: [ String.raw`X \in \mathbb{R}^{B \times T \times d_{\text{model}}}` ],
+          blurb: "Sequence of token embeddings (plus positions) entering this decoder block."
+        },
+        qkv: {
+          title: "QKV Projection",
+          shape: `Q,K,V → [B=${B}, h=${h}, T=${T}, d_head=${d_head}]`,
+          eqs: [
+            String.raw`Q = X W_Q + b_Q,\quad K = X W_K + b_K,\quad V = X W_V + b_V`,
+            String.raw`\text{reshape } Q,K,V \rightarrow [B,\; h,\; T,\; d_{\text{head}}],\;\; h\cdot d_{\text{head}} = d_{\text{model}}`
+          ],
+          blurb: "Linear maps split the model dimension into multiple heads so attention can look at different subspaces."
+        },
+        heads: {
+          title: "Scaled Dot-Product Attention (per head)",
+          shape: `Weights [B=${B}, h=${h}, T=${T}, T=${T}], Context [B=${B}, h=${h}, T=${T}, d_head=${d_head}]`,
+          eqs: [
+            String.raw`A = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_{\text{head}}}} + M\right)`,
+            String.raw`\text{Context} = A \, V`
+          ],
+          blurb: "Compute masked similarities, normalize with softmax (row-wise over keys), then mix values to produce contextualized vectors."
+        },
+        concat: {
+          title: "Concat Heads",
+          shape: `[B=${B}, T=${T}, h \cdot d_head = d_model = ${d_model}]`,
+          eqs: [ String.raw`\text{Concat}(\text{Context}_1,\ldots,\text{Context}_h) \rightarrow [B, T, h\cdot d_{\text{head}}]` ],
+          blurb: "Join each head's context along the feature dimension to reassemble a full \(d_{model}\)-dimensional representation."
+        },
+        wo: {
+          title: "Output Projection (W₀)",
+          shape: `[B=${B}, T=${T}, d_model=${d_model}]`,
+          eqs: [ String.raw`Y = \text{Concat} \cdot W_O + b_O,\quad W_O \in \mathbb{R}^{d_{\text{model}}\times d_{\text{model}}}` ],
+          blurb: "Mixes head outputs back into the model space."
+        },
+        residual: {
+          title: "Residual Connection",
+          shape: `[B=${B}, T=${T}, d_model=${d_model}]`,
+          eqs: [ String.raw`X_{\text{attn}} = X + \text{Dropout}(Y)` ],
+          blurb: "Add skip connection for stable optimization and signal flow."
+        },
+        ffn: {
+          title: "Position-wise Feed-Forward (FFN)",
+          shape: `[B=${B}, T=${T}, d_{ff}=${d_ff}] → [B=${B}, T=${T}, d_{model}=${d_model}]`,
+          eqs: [
+            String.raw`Z = \phi(X_{\text{attn}} W_1 + b_1),\quad W_1 \in \mathbb{R}^{d_{\text{model}}\times d_{ff}}`,
+            String.raw`X_{\text{out}} = Z W_2 + b_2,\quad W_2 \in \mathbb{R}^{d_{ff}\times d_{\text{model}}}`
+          ],
+          blurb: "Two linear layers with a nonlinearity (e.g., GELU) expand then compress features to model token-wise transformations."
+        }
+      };
+    }
+
+    function renderStepPanel(stepKey, info){
+      const panel = document.getElementById("stepPanel");
+      panel.innerHTML = `
+        <h3>${info.title}</h3>
+        <div class="shape-line"><b>Shape:</b> ${info.shape}</div>
+        <div class="blurb">${info.blurb}</div>
+        ${info.eqs.map(eq => `<div class="eq">\\(${eq}\\)</div>`).join("")}
+        <div class="spacer"></div>
+      `;
+      typeset();
+    }
+
+    function attachStepClicks(dims){
+      const infoMap = makeStepInfo(dims);
+      const boxes = document.querySelectorAll(".flow-box[data-step]");
+      boxes.forEach(box=>{
+        box.addEventListener("click", ()=>{
+          boxes.forEach(b=>b.classList.remove("selected"));
+          box.classList.add("selected");
+          const k = box.getAttribute("data-step");
+          renderStepPanel(k, infoMap[k]);
+        });
+        box.addEventListener("keydown",(e)=>{
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); box.click(); }
+        });
+      });
+    }
+
+    /* ==================== Load data with visible progress ==================== */
     async function loadData() {
-      const res = await fetch("/decoder/layers/2");
-      const wrapper = await res.json();
-      const data = wrapper.data || wrapper;
+      showOverlay("Downloading decoder JSON…", "Starting…", /*indeterminate*/ false);
+      setTopProgress(0);
+      overlayBar.style.width = "0%";
+
+      let dataObj;
+      try {
+        const wrapper = await fetchJSONWithProgress("/decoder/layers/2", (p, received, total) => {
+          if (p === null) {
+            // indeterminate mode if server didn't send Content-Length
+            if (!overlay.classList.contains('indeterminate')) {
+              overlay.classList.add('indeterminate');
+            }
+            overlayTitle.textContent = "Downloading decoder JSON…";
+            overlaySub.textContent = "Loading…";
+            // animate top bar a bit via showOverlay timer
+          } else {
+            overlay.classList.remove('indeterminate');
+            setTopProgress(p);
+            setOverlayProgress(p, received, total);
+          }
+        });
+        dataObj = wrapper.data || wrapper;
+      } catch (e) {
+        overlayTitle.textContent = "Failed to load data";
+        overlaySub.textContent = (e && e.message) ? e.message : "Unknown error";
+        console.error(e);
+        // Leave overlay visible so the user sees the error
+        return;
+      }
+
+      overlayTitle.textContent = "Preparing UI…";
+      overlaySub.textContent = "Wiring shapes and controls";
+      setTopProgress(0.98);
 
       // --- Extract dimensions
-      const T = data.seq_len;
-      const h = data.num_heads;
-      const d_head = data.head_dim;
+      const B = dataObj.batch_size || "B";
+      const T = dataObj.seq_len;
+      const h = dataObj.num_heads;
+      const d_head = dataObj.head_dim;
       const d_model = h * d_head;
       const d_ff = d_model * 4;
 
       // --- Build flow diagram with shapes
       const flow = document.getElementById("flowDiagram");
       flow.innerHTML = `
-        <div class="flow-box input-box">Input<br><small>[B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="flow-box input-box" data-step="input" role="button" tabindex="0">
+          Input
+          <small>[B, T=${T}, d_model=${d_model}]</small>
+        </div>
         <div class="arrow">→</div>
-        <div class="flow-box qkv-box">QKV Proj<br><small>Q,K,V: [B, h=${h}, T=${T}, d_head=${d_head}]</small></div>
+        <div class="flow-box qkv-box" data-step="qkv" role="button" tabindex="0">
+          QKV Proj
+          <small>Q,K,V: [B, h=${h}, T=${T}, d_head=${d_head}]</small>
+        </div>
         <div class="arrow">→</div>
-        <div class="flow-box heads-box">Heads (${h})<br><small>Weights [B, h=${h}, T=${T}, T=${T}]</small></div>
+        <div class="flow-box heads-box" data-step="heads" role="button" tabindex="0">
+          Heads (${h})
+          <small>Weights [B, h=${h}, T=${T}, T=${T}]</small>
+        </div>
         <div class="arrow">→</div>
-        <div class="flow-box concat-box">Concat<br><small>[B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="flow-box concat-box" data-step="concat" role="button" tabindex="0">
+          Concat
+          <small>[B, T=${T}, d_model=${d_model}]</small>
+        </div>
         <div class="arrow">→</div>
-        <div class="flow-box wo-box">W₀<br><small>[B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="flow-box wo-box" data-step="wo" role="button" tabindex="0">
+          W₀
+          <small>[B, T=${T}, d_model=${d_model}]</small>
+        </div>
         <div class="arrow">→</div>
-        <div class="flow-box residual-box">Residual<br><small>[B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="flow-box residual-box" data-step="residual" role="button" tabindex="0">
+          Residual
+          <small>[B, T=${T}, d_model=${d_model}]</small>
+        </div>
         <div class="arrow">→</div>
-        <div class="flow-box ffn-box">FFN<br><small>[B, T=${T}, d_ff=${d_ff}] → [B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="flow-box ffn-box" data-step="ffn" role="button" tabindex="0">
+          FFN
+          <small>[B, T=${T}, d_ff=${d_ff}] → [B, T=${T}, d_model=${d_model}]</small>
+        </div>
       `;
+      attachStepClicks({B, T, h, d_head, d_model, d_ff});
 
       // --- Build head buttons
       const buttons = document.getElementById("headButtons");
-      data.heads.forEach(head => {
+      buttons.innerHTML = "";
+      (dataObj.heads || []).forEach(head => {
         const btn = document.createElement("div");
         btn.className = "head-btn";
         btn.innerText = "Head " + head.head;
-        btn.onclick = () => showHead(head, data.seq_len);
+        btn.onclick = () => showHead(head, dataObj.seq_len);
         buttons.appendChild(btn);
       });
+
+      // Select default step
+      const first = document.querySelector('.flow-box[data-step="qkv"]');
+      if (first) first.click();
+
+      // All ready → hide overlay and finish top bar
+      doneTopProgress();
+      hideOverlay();
     }
 
+    /* ==================== Existing head viewer (unchanged) ==================== */
     function showHead(head, seqLen) {
       const details = document.getElementById("headDetails");
       details.innerHTML = "";
 
       const div = document.createElement("div");
       div.className = "head-detail";
-
       div.innerHTML = `<h3>Head #${head.head}</h3>`;
 
-      // Heatmap
+      const plotDiv = document.createElement("div");
+      plotDiv.className = "plot";
+      div.appendChild(plotDiv);
+
+      // Show small inline loading while rendering plot (for very large T)
+      plotDiv.innerHTML = `<div style="display:flex;gap:10px;align-items:center;color:#6b7280;">
+        <div class="spinner" style="width:20px;height:20px;border-width:2px;"></div>
+        Rendering attention matrix…
+      </div>`;
+
       const matrix = head.tokens.map(t =>
         t.scores_masked.map(v => v === "MASKED" ? NaN : v)
       );
       const yLabels = head.tokens.map(t => "Query t=" + t.token_index);
       const xLabels = Array.from({length: seqLen}, (_, i) => "Key t=" + i);
 
-      const plotDiv = document.createElement("div");
-      plotDiv.className = "plot";
-      div.appendChild(plotDiv);
-
+      // Plotly returns a promise; hide inline loader after it resolves
       Plotly.newPlot(plotDiv, [{
-        z: matrix,
-        x: xLabels,
-        y: yLabels,
-        type: "heatmap",
-        colorscale: "Viridis",
-        zmin: -1,
-        zmax: 1
+        z: matrix, x: xLabels, y: yLabels,
+        type: "heatmap", colorscale: "Viridis", zmin: -1, zmax: 1
       }], {
         title: "Attention Matrix",
         xaxis: { title: "Key Tokens", side: "top" },
         yaxis: { title: "Query Tokens", autorange: "reversed" }
-      });
+      }).then(() => {
+        // remove inline loader text (Plotly overwrote innerHTML anyway)
+      }).catch(()=>{/* ignore */});
 
       // Accordion for tokens
       const acc = document.createElement("div");
@@ -291,6 +595,7 @@
       details.appendChild(div);
     }
 
+    // Kick off with visible progress
     loadData();
   </script>
 </body>
