@@ -1,564 +1,297 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Attention Mechanism Visualizer</title>
-
-  <!-- Tailwind CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- MathJax for formulas -->
-  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-
+  <meta charset="utf-8"/>
+  <title>Decoder Layer 0 Viewer</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-
-    :root{
-      /* Match your main page “attention paper” palette */
-      --bg:#0b1020;
-      --fg:#e6eaf2;
-      --muted:#9aa4b2;
-      --stroke:#27314a;
-      --arrow:#86a2ff;
-
-      --ln:#32406f;     /* LayerNorm */
-      --qkv:#215b72;    /* QKV */
-      --heads:#1e6b74;  /* Heads */
-      --concat:#3b2f63; /* Concat */
-      --wo:#4a2a3a;     /* W_O */
-      --res:#644b1f;    /* Residual */
-      --ffn:#205c38;    /* FFN */
-      --out:#1f6d57;    /* Output */
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #f7f9fc;
+      color: #222;
+      margin: 0;
+      padding: 20px;
+    }
+    h1, h2 {
+      text-align: center;
+      margin: 10px 0;
     }
 
-    html,body{background:var(--bg);color:var(--fg);font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
-    /* Center layout & keep nice gutters */
-    .container{
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 0 20px;
+    /* Flow diagram styles */
+    .flow-container {
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      margin: 20px 0 40px 0;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    .flow-box {
+      padding: 12px 18px;
+      border-radius: 10px;
+      color: #111;
+      font-weight: 600;
+      font-size: 14px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      text-align: center;
+      min-width: 140px;
+    }
+    .flow-box small {
+      display: block;
+      margin-top: 6px;
+      font-size: 12px;
+      font-weight: normal;
+      color: #444;
+    }
+    .input-box { background: #dbeafe; }
+    .qkv-box { background: #fde2e2; }
+    .heads-box { background: #e0e7ff; }
+    .concat-box { background: #cffafe; }
+    .wo-box { background: #fbcfe8; }
+    .residual-box { background: #dcfce7; }
+    .ffn-box { background: #fef9c3; }
+    .arrow {
+      font-size: 18px;
+      font-weight: bold;
+      color: #666;
+      align-self: center;
     }
 
-    /* Main title */
-    #main-title{
-      letter-spacing:.2px;
+    /* Head buttons */
+    .heads-overview {
+      text-align: center;
+      margin: 20px auto;
+      padding: 15px;
+      border-radius: 10px;
+      background: #eef2ff;
+      max-width: 800px;
+    }
+    .head-btn {
+      display: inline-block;
+      margin: 8px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      background: #6366f1;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .head-btn:hover {
+      background: #4f46e5;
     }
 
-    /* Flow row */
-    .flow-diagram-container{
-      display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:18px;padding:22px 0;
+    /* Detail sections */
+    .head-detail {
+      margin: 30px auto;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: white;
+      max-width: 1100px;
+    }
+    .plot {
+      margin: 20px 0;
     }
 
-    /* Diagram block base */
-    .diagram-block{
-      min-width:160px;min-height:64px;border-radius:14px;padding:12px 14px;
-      border:1px solid var(--stroke);
-      box-shadow:0 10px 28px rgba(0,0,0,.24);
-      transition:transform .12s ease, box-shadow .2s ease, filter .2s ease;
-      cursor:pointer;
+    /* Accordion for tokens */
+    .accordion {
+      margin-top: 15px;
+      border-top: 1px solid #ddd;
     }
-    .diagram-block:hover{ transform:translateY(-2px); filter:brightness(1.04); box-shadow:0 14px 32px rgba(0,0,0,.30), 0 0 0 2px rgba(134,162,255,.14) }
-
-    .title-sm{font-weight:800;font-size:13px;letter-spacing:.2px}
-    .subtitle-xs{font-size:11px;color:var(--muted)}
-
-    /* Themed blocks (gradient for depth) */
-    .b-ln    { background:linear-gradient(180deg,var(--ln) 0%, #24325e 100%); }
-    .b-qkv   { background:linear-gradient(180deg,var(--qkv) 0%, #1a465f 100%); }
-    .b-heads { background:linear-gradient(180deg,var(--heads) 0%, #1a5760 100%); min-width:260px; min-height:76px;}
-    .b-concat{ background:linear-gradient(180deg,var(--concat) 0%, #342657 100%); }
-    .b-wo    { background:linear-gradient(180deg,var(--wo) 0%, #3d2433 100%); }
-    .b-res   { background:linear-gradient(180deg,var(--res) 0%, #4f3c18 100%); }
-    .b-ffn   { background:linear-gradient(180deg,var(--ffn) 0%, #1a4833 100%); }
-    .b-out   { background:linear-gradient(180deg,var(--out) 0%, #155547 100%); }
-
-    /* Arrows between blocks */
-    .arrow{
-      height:2px;background:var(--arrow);position:relative;flex:0 0 38px;border-radius:1px;
-      opacity:.9;
+    .accordion-item {
+      border-bottom: 1px solid #eee;
     }
-    .arrow::after{
-      content:''; position:absolute; right:-7px; top:-4px;
-      width:0; height:0; border-style:solid;
-      border-width:5px 0 5px 8px;
-      border-color:transparent transparent transparent var(--arrow);
+    .accordion-header {
+      padding: 10px;
+      cursor: pointer;
+      background: #f3f4f6;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
-
-    /* Right-hand data panel */
-    .data-card{
-      background:#0e1531;border:1px solid var(--stroke);
-      border-radius:14px;box-shadow:0 14px 36px rgba(0,0,0,.28);padding:22px;
+    .accordion-header:hover {
+      background: #e5e7eb;
     }
-
-    /* Details styling */
-    .details-summary{
-      cursor:pointer;padding:.5rem;margin:.25rem 0;background-color:#121a33;
-      border-radius:8px;transition:background-color .15s;list-style:none;
+    .accordion-header .icon {
+      transition: transform 0.2s;
     }
-    .details-summary::-webkit-details-marker{display:none}
-    .details-summary::before{
-      content:'►'; display:inline-block; margin-right:.5em; transition:transform .15s;
+    .accordion-header.active .icon {
+      transform: rotate(90deg);
     }
-    details[open] > .details-summary::before{ transform:rotate(90deg); }
-    .details-content{ padding:.5rem; margin-left:1rem; border-left:2px solid #2a3558; font-size:.875rem; line-height:1.25; }
-
-    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
-    .data-array{font-size:.75rem;color:#94a3b8}
-    .formula-box{ background-color:#132148; border:1px solid #2e3d6e; padding:12px; border-radius:12px; margin:12px 0; font-style:italic; }
-    .sub-block{ background-color:#111c36; padding:.5rem; border-radius:10px; margin-top:.5rem;}
-
-    /* Metrics chip row */
-    .chip-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:10px}
-    .chip{background:#141c39;border:1px solid var(--stroke); color:var(--fg);
-      padding:6px 10px;border-radius:999px;font-size:12px}
-
-    /* Skeleton loader */
-    .skeleton{
-      display:inline-block;height:18px;width:120px;border-radius:6px;
-      background:linear-gradient(90deg,#162042 0%,#1b274e 50%,#162042 100%);
-      background-size:200% 100%;animation:shimmer 1.2s infinite;
+    .accordion-body {
+      display: none;
+      padding: 10px;
+      font-size: 13px;
+      background: #fafafa;
     }
-    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-
-    /* Make blocks & head pills clearly link-like */
-    .cursor-link{cursor:pointer}
-    .head-pill{background:linear-gradient(180deg,#4033b0 0%, #2f2792 100%); border:1px solid #3c3fd8; color:#fff; font-weight:700; border-radius:999px; padding:12px 16px; text-align:center; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,.25); user-select:none;}
-    .head-pill:hover{ filter:brightness(1.08) }
+    .vector {
+      white-space: nowrap;
+      overflow-x: auto;
+      font-family: monospace;
+      background: #f1f5f9;
+      padding: 5px;
+      border-radius: 4px;
+    }
+    .expand-btn {
+      display: inline-block;
+      margin-top: 5px;
+      font-size: 12px;
+      color: #2563eb;
+      cursor: pointer;
+    }
   </style>
 </head>
+<body>
+  <h1>Decoder Layer 0</h1>
+  <h2>Flow + Attention Visualization</h2>
 
-<body class="min-h-screen flex flex-col">
-  <header class="container text-center py-8">
-    <h1 id="main-title"
-        class="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
-      Decoder Attention Flow
-    </h1>
-    <p class="text-lg text-[var(--muted)] mt-2">A horizontal visualization of the attention mechanism.</p>
+  <!-- Flow Diagram -->
+  <div class="flow-container" id="flowDiagram">
+    <!-- Filled dynamically with shapes -->
+  </div>
 
-    <!-- Metrics chip row (auto populated from JSON) -->
-    <div id="chipRow" class="chip-row">
-      <span class="chip"><span class="skeleton"></span></span>
-      <span class="chip"><span class="skeleton"></span></span>
-      <span class="chip"><span class="skeleton"></span></span>
-    </div>
-  </header>
+  <!-- Heads Overview -->
+  <div class="heads-overview">
+    <h3>Heads Overview</h3>
+    <p>Click a head to inspect details.</p>
+    <div id="headButtons"></div>
+  </div>
 
-  <main class="container flex-1">
-    <!-- Flow -->
-    <div id="flow-container" class="flow-diagram-container"></div>
-
-    <!-- Data panel -->
-    <div id="data-view" class="mt-8 data-card hidden">
-      <div id="data-content" class="text-[var(--fg)]"></div>
-    </div>
-
-    <div id="status-message" class="text-center text-lg text-[var(--muted)]">Loading…</div>
-  </main>
+  <div id="headDetails"></div>
 
   <script>
-    /* ----------------------- CONFIG (unchanged) ----------------------- */
-    const ENDPOINT   = "/decoder/layers/0";
-    const FFN_PAGE   = "decoder_layer_0_FFN.html";
-    const USE_CREDENTIALS = false;
+    async function loadData() {
+      const res = await fetch("/decoder/layers/0");
+      const wrapper = await res.json();
+      const data = wrapper.data || wrapper;
 
-    /* ----------------------- Utils ----------------------- */
-    const $ = id => document.getElementById(id);
-    const fmtScalar = v => {
-      if (v === null || v === undefined) return '';
-      if (typeof v === 'number') {
-        const s = String(v);
-        if (s.includes('e') || !s.includes('.')) return s;
-        return Number(v.toFixed(4)).toString();
-      }
-      return String(v);
-    };
-    const isArrayLike = v => Array.isArray(v) || (v && typeof v.length === 'number');
+      // --- Extract dimensions
+      const T = data.seq_len;
+      const h = data.num_heads;
+      const d_head = data.head_dim;
+      const d_model = h * d_head;
+      const d_ff = d_model * 4;
 
-    /* ----------------------- Diagram helpers ----------------------- */
-    function createDiagramBlock(title, subtitle, themeClass, onClickHandler){
-      const block = document.createElement('div');
-      block.className = `diagram-block ${themeClass} cursor-link`;
-      block.tabIndex = 0;
-      block.innerHTML = `
-        <div class="title-sm">${title}</div>
-        <div class="subtitle-xs mt-1">${subtitle}</div>
-      `;
-      if (onClickHandler) {
-        block.addEventListener('click', onClickHandler);
-        block.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClickHandler(); }
-        });
-      }
-      return block;
-    }
-    function createArrow(){
-      const arrow = document.createElement('div');
-      arrow.className = 'arrow';
-      return arrow;
-    }
-
-    /* ----------------------- Stage descriptions ----------------------- */
-    const headStageDescriptions = {
-      "q_after_proj_rope": "Query vector (what this token is asking about), Q=X·WQ.",
-      "k_after_proj_rope": "Key vectors (addresses exposed by tokens), K=X·WK.",
-      "v_after_proj": "Value vectors (content carried by tokens), V=X·WV.",
-      "scores_raw": "Raw similarity Q·Kᵀ before mask/softmax.",
-      "scores_masked": "Scores after applying causal/pad mask.",
-      "weights_softmax": "Attention distribution α=softmax(scores).",
-      "weights_after_dropout": "Weights after dropout (train only).",
-      "topk_after_dropout": "Top-k tokens with highest attention.",
-      "context_head": "Per-head output: ∑ αⱼ · Vⱼ"
-    };
-
-    /* ----------------------- Detailed views ----------------------- */
-    function renderHeadTrie(headData){
-      let html = `
-        <h3 class="text-xl font-bold mb-4">Head #${headData.head} Data</h3>
-        <p class="text-[var(--muted)] text-sm">Click to expand and view detailed vectors.</p>
-        <div class="formula-box">
-          <p class="text-sm font-semibold">Formula for Attention:</p>
-          <div class="text-center text-lg mt-2 mono">
-            $$ Attention(Q, K, V) = \\text{softmax}(\\frac{QK^T}{\\sqrt{d_k}})V $$
-          </div>
-        </div>
-        <div class="mt-4">
+      // --- Build flow diagram with shapes
+      const flow = document.getElementById("flowDiagram");
+      flow.innerHTML = `
+        <div class="flow-box input-box">Input<br><small>[B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="arrow">→</div>
+        <div class="flow-box qkv-box">QKV Proj<br><small>Q,K,V: [B, h=${h}, T=${T}, d_head=${d_head}]</small></div>
+        <div class="arrow">→</div>
+        <div class="flow-box heads-box">Heads (${h})<br><small>Weights [B, h=${h}, T=${T}, T=${T}]</small></div>
+        <div class="arrow">→</div>
+        <div class="flow-box concat-box">Concat<br><small>[B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="arrow">→</div>
+        <div class="flow-box wo-box">W₀<br><small>[B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="arrow">→</div>
+        <div class="flow-box residual-box">Residual<br><small>[B, T=${T}, d_model=${d_model}]</small></div>
+        <div class="arrow">→</div>
+        <div class="flow-box ffn-box">FFN<br><small>[B, T=${T}, d_ff=${d_ff}] → [B, T=${T}, d_model=${d_model}]</small></div>
       `;
 
-      const traces = headData.trace || [];
-      if (!traces.length) {
-        html += `<div class="sub-block text-center text-[var(--muted)]">No trace data available.</div>`;
-      } else {
-        traces.forEach(stage => {
-          const stageName = stage.stage || `Stage ${stage.stage_idx}`;
-          const description = headStageDescriptions[stage.stage] || "No description available";
-          html += `
-            <details class="mb-2">
-              <summary class="details-summary text-base font-semibold">${stageName}
-                <span class="text-xs text-[var(--muted)] font-normal"> (${description})</span>
-              </summary>
-              <div class="details-content">
-          `;
-          Object.keys(stage).forEach(key => {
-            if (key === 'stage' || key === 'stage_idx') return;
-            const value = stage[key];
-            html += `<div class="mt-2">`;
-            if (isArrayLike(value)) {
-              const preview = Array.from(value).slice(0, 10).map(fmtScalar).join(', ') + (value.length > 10 ? '…' : '');
-              const fullContent = JSON.stringify(Array.from(value), null, 2);
-              html += `
-                <div class="font-bold">${key}: <span class="data-array">(length: ${value.length})</span></div>
-                <div class="mono text-sm break-words mt-1">${preview}</div>
-                <details class="mt-2">
-                  <summary class="details-summary text-sm font-normal">Show Full Array</summary>
-                  <pre class="bg-[#0c1430] p-2 rounded-lg text-xs overflow-auto max-h-40">${fullContent}</pre>
-                </details>
-              `;
-            } else if (typeof value === 'object' && value !== null) {
-              html += `<div class="font-bold">${key}:</div>
-                       <pre class="bg-[#0c1430] p-2 rounded-lg text-xs overflow-auto max-h-40">${JSON.stringify(value, null, 2)}</pre>`;
-            } else {
-              html += `<div class="font-bold">${key}: <span class="mono">${fmtScalar(value)}</span></div>`;
-            }
-            html += `</div>`;
-          });
-          html += `</div></details>`;
-        });
-      }
-      html += `</div>`;
-      return html;
-    }
-
-    function renderConcatData(mergedData){
-      const concatVector = mergedData.concat_vector || mergedData.concatVector;
-      return `
-        <h3 class="text-xl font-bold mb-4">Concatenated Vector</h3>
-        <div class="formula-box">
-          <p class="text-sm font-semibold">Formula for Concatenation:</p>
-          <div class="text-center text-lg mt-2 mono">
-            $$ \\text{ConcatVector} = [H_1 || H_2 || ... || H_n] $$
-          </div>
-        </div>
-        ${
-          concatVector
-          ? `<div class="mt-4">
-              <div class="font-bold">Vector: <span class="data-array">(length: ${concatVector.length})</span></div>
-              <div class="mono text-sm break-words mt-1">${Array.from(concatVector).slice(0,50).map(fmtScalar).join(', ')}…</div>
-              <details class="mt-2">
-                <summary class="details-summary text-sm font-normal">Show Full Array</summary>
-                <pre class="bg-[#0c1430] p-2 rounded-lg text-xs overflow-auto max-h-80">${JSON.stringify(Array.from(concatVector), null, 2)}</pre>
-              </details>
-            </div>`
-          : '<p class="text-center text-[var(--muted)] mt-4">Concatenated vector not found in data.</p>'
-        }
-      `;
-    }
-
-    function renderWOData(mergedData){
-      const woOutput = mergedData.wo_output || mergedData.woOutput;
-      return `
-        <h3 class="text-xl font-bold mb-4">Output After W_O Weighting</h3>
-        <div class="formula-box">
-          <p class="text-sm font-semibold">Formula for W_O:</p>
-          <div class="text-center text-lg mt-2 mono">
-            $$ \\text{Output} = \\text{ConcatVector} \\times W_O $$
-          </div>
-        </div>
-        ${
-          woOutput
-          ? `<div class="mt-4">
-              <div class="font-bold">Vector: <span class="data-array">(length: ${woOutput.length})</span></div>
-              <div class="mono text-sm break-words mt-1">${Array.from(woOutput).slice(0,50).map(fmtScalar).join(', ')}…</div>
-              <details class="mt-2">
-                <summary class="details-summary text-sm font-normal">Show Full Array</summary>
-                <pre class="bg-[#0c1430] p-2 rounded-lg text-xs overflow-auto max-h-80">${JSON.stringify(Array.from(woOutput), null, 2)}</pre>
-              </details>
-            </div>`
-          : '<p class="text-center text-[var(--muted)] mt-4">W_O output not found in data.</p>'
-        }
-      `;
-    }
-
-    /* ----------------------- Main render ----------------------- */
-    function renderDecoder(decoder){
-      const statusMessage = $("status-message");
-      const mainTitle = $("main-title");
-      const flowContainer = $("flow-container");
-      const dataView = $("data-view");
-      const dataContent = $("data-content");
-      const chipRow = $("chipRow");
-
-      statusMessage.style.display = 'none';
-      flowContainer.innerHTML = '';
-
-      // Title
-      const layerIdx = decoder.layer_index ?? 0;
-      mainTitle.textContent = `Decoder ${layerIdx} Attention Flow`;
-
-      // Chips: H, d_k, D_ff (when available)
-      const H = decoder.num_heads ?? (Array.isArray(decoder.heads) ? decoder.heads.length : undefined);
-      const dk = decoder.head_dim ?? (H && decoder.hidden_size ? Math.floor(decoder.hidden_size / H) : undefined);
-      const Dff = decoder.ffn_dim ?? (decoder.intermediate_size ?? (decoder.hidden_size ? 4*decoder.hidden_size : undefined));
-
-      const chips = [];
-      if (H !== undefined) chips.push(`Heads: <b>${H}</b>`);
-      if (dk !== undefined) chips.push(`d<sub>k</sub>: <b>${dk}</b>`);
-      if (decoder.hidden_size !== undefined) chips.push(`D: <b>${decoder.hidden_size}</b>`);
-      if (Dff !== undefined) chips.push(`D<sub>ff</sub>: <b>${Dff}</b>`);
-
-      chipRow.innerHTML = chips.length
-        ? chips.map(txt => `<span class="chip">${txt}</span>`).join('')
-        : `<span class="chip">Decoder index: <b>${layerIdx}</b></span>`;
-
-      // Heads data
-      const headsData = (decoder.heads || decoder.head || decoder.heads_list || []);
-
-      // Merged data area
-      const mergedData = decoder.merged || decoder.merge || {};
-
-      // Flow blocks (same logic, upgraded styles)
-      const blocks = [
-        {
-          title:"Input",
-          subtitle:"Token Embeddings",
-          theme:"b-ln",
-          handler: () => {
-            dataView.classList.remove('hidden');
-            dataContent.innerHTML = `
-              <h3 class="text-xl font-bold mb-4">Input Embeddings</h3>
-              <p class="text-[var(--muted)]">
-                Each token is represented as a vector of dimension D (often with positional information).
-              </p>
-              <div class="formula-box mt-4">
-                <p class="text-sm font-semibold">Concept:</p>
-                <div class="text-center text-lg mt-2 mono">
-                  $$ \\text{Token} \\to \\text{Vector}(D) $$
-                </div>
-              </div>
-            `;
-            MathJax.typeset();
-          }
-        },
-        {
-          title:"QKV Proj",
-          subtitle:"Query, Key, Value",
-          theme:"b-qkv",
-          handler: () => {
-            dataView.classList.remove('hidden');
-            dataContent.innerHTML = `
-              <h3 class="text-xl font-bold mb-4">QKV Projection</h3>
-              <p class="text-[var(--muted)]">
-                The input is projected into Query, Key, and Value spaces using separate weight matrices.
-              </p>
-              <div class="formula-box mt-4">
-                <p class="text-sm font-semibold">Formulas:</p>
-                <div class="text-center text-lg mt-2 mono">
-                  $$ Q = XW_Q, \\quad K = XW_K, \\quad V = XW_V $$
-                </div>
-              </div>
-            `;
-            MathJax.typeset();
-          }
-        },
-        {
-          title:`Heads (${headsData.length || (H ?? '?')})`,
-          subtitle:"Individual Attention Heads",
-          theme:"b-heads",
-          handler: () => {
-            dataView.classList.remove('hidden');
-            dataContent.innerHTML = `
-              <h3 class="text-xl font-bold mb-4">Heads Overview</h3>
-              <p class="text-[var(--muted)]">Click a head to inspect its trace.</p>
-              <div id="headsGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4"></div>
-            `;
-            const grid = $("headsGrid");
-            (headsData || []).forEach(head => {
-              const btn = document.createElement('button');
-              btn.type = 'button';
-              btn.className = 'head-pill';
-              btn.textContent = `Head ${head.head}`;
-              btn.addEventListener('click', () => {
-                dataContent.innerHTML = renderHeadTrie(head);
-                MathJax.typeset();
-              });
-              grid.appendChild(btn);
-            });
-          }
-        },
-        {
-          title:"Concat",
-          subtitle:"Concatenate Heads",
-          theme:"b-concat",
-          handler: () => {
-            dataView.classList.remove('hidden');
-            dataContent.innerHTML = renderConcatData(mergedData);
-            MathJax.typeset();
-          }
-        },
-        {
-          title:"W_O",
-          subtitle:"Output Weighting",
-          theme:"b-wo",
-          handler: () => {
-            dataView.classList.remove('hidden');
-            dataContent.innerHTML = renderWOData(mergedData);
-            MathJax.typeset();
-          }
-        },
-        {
-          title:"Add & Norm",
-          subtitle:"Residual Connection",
-          theme:"b-res",
-          handler: () => {
-            dataView.classList.remove('hidden');
-            dataContent.innerHTML = `
-              <h3 class="text-xl font-bold mb-4">Residual Connection & LayerNorm</h3>
-              <p class="text-[var(--muted)]">
-                The attention output is added to the input (residual), followed by Layer Normalization.
-              </p>
-              <div class="formula-box mt-4">
-                <p class="text-sm font-semibold">LayerNorm:</p>
-                <div class="text-center text-lg mt-2 mono">
-                  $$ \\text{LN}(x) = \\frac{x - \\mu}{\\sqrt{\\sigma^2 + \\epsilon}} \\cdot \\gamma + \\beta $$
-                </div>
-              </div>
-            `;
-            MathJax.typeset();
-          }
-        },
-        {
-          title:"FFN",
-          subtitle:"Feed-Forward Network",
-          theme:"b-ffn",
-          handler: () => {
-            dataView.classList.remove('hidden');
-            dataContent.innerHTML = `
-              <h3 class="text-xl font-bold mb-4">Feed-Forward Network (FFN)</h3>
-              <p class="text-[var(--muted)]">
-                Position-wise MLP applied to each token independently, typically with hidden size D<sub>ff</sub>.
-              </p>
-              <p class="text-[var(--muted)] mt-2">
-                <a id="ffnLink" class="text-blue-300 hover:text-blue-200 underline font-semibold cursor-link">Open the FFN page</a>
-              </p>
-              <div class="formula-box mt-4">
-                <p class="text-sm font-semibold">Formula:</p>
-                <div class="text-center text-lg mt-2 mono">
-                  $$ \\text{FFN}(x) = \\phi(xW_1 + b_1)W_2 + b_2 \\,\\, (\\phi=\\text{GELU/ReLU/SwiGLU}) $$
-                </div>
-              </div>
-            `;
-            $("ffnLink").href = FFN_PAGE;
-            MathJax.typeset();
-          }
-        },
-        {
-          title:"Output",
-          subtitle:"Final Layer Output",
-          theme:"b-out",
-          handler: () => {
-            dataView.classList.remove('hidden');
-            dataContent.innerHTML = `
-              <h3 class="text-xl font-bold mb-4">Output</h3>
-              <p class="text-[var(--muted)]">This is the output of the decoder layer passed to the next layer.</p>
-            `;
-            MathJax.typeset();
-          }
-        }
-      ];
-
-      // Render flow with arrows
-      blocks.forEach((b, i) => {
-        flowContainer.appendChild(createDiagramBlock(b.title, b.subtitle, b.theme, b.handler));
-        if (i < blocks.length - 1) flowContainer.appendChild(createArrow());
+      // --- Build head buttons
+      const buttons = document.getElementById("headButtons");
+      data.heads.forEach(head => {
+        const btn = document.createElement("div");
+        btn.className = "head-btn";
+        btn.innerText = "Head " + head.head;
+        btn.onclick = () => showHead(head, data.seq_len);
+        buttons.appendChild(btn);
       });
     }
 
-    /* ----------------------- Fetch & discover ----------------------- */
-    async function fetchAndRenderData(){
-      const statusMessage = $("status-message");
-      try{
-        const res = await fetch(ENDPOINT, {
-          method:'GET',
-          headers: { 'Accept':'application/json, text/plain;q=0.9, */*;q=0.8' },
-          cache:'no-store',
-          mode:'cors',
-          credentials: USE_CREDENTIALS ? 'include' : 'omit'
-        });
-        if (!res.ok){
-          statusMessage.textContent = `HTTP ${res.status} ${res.statusText}`;
-          return;
-        }
-        const data = await res.json();
-        const decoders = gatherDecoders(data);
-        const decoder = decoders.length ? decoders[0] : null;
-        if (!decoder){
-          statusMessage.textContent = 'No decoder object found.';
-          return;
-        }
-        renderDecoder(decoder);
-      }catch(err){
-        console.error('Failed to fetch data:', err);
-        $("status-message").textContent = 'Failed to load data. Check console for details.';
-      }
+    function showHead(head, seqLen) {
+      const details = document.getElementById("headDetails");
+      details.innerHTML = "";
+
+      const div = document.createElement("div");
+      div.className = "head-detail";
+
+      div.innerHTML = `<h3>Head #${head.head}</h3>`;
+
+      // Heatmap
+      const matrix = head.tokens.map(t =>
+        t.scores_masked.map(v => v === "MASKED" ? NaN : v)
+      );
+      const yLabels = head.tokens.map(t => "Query t=" + t.token_index);
+      const xLabels = Array.from({length: seqLen}, (_, i) => "Key t=" + i);
+
+      const plotDiv = document.createElement("div");
+      plotDiv.className = "plot";
+      div.appendChild(plotDiv);
+
+      Plotly.newPlot(plotDiv, [{
+        z: matrix,
+        x: xLabels,
+        y: yLabels,
+        type: "heatmap",
+        colorscale: "Viridis",
+        zmin: -1,
+        zmax: 1
+      }], {
+        title: "Attention Matrix",
+        xaxis: { title: "Key Tokens", side: "top" },
+        yaxis: { title: "Query Tokens", autorange: "reversed" }
+      });
+
+      // Accordion for tokens
+      const acc = document.createElement("div");
+      acc.className = "accordion";
+      head.tokens.forEach(tok => {
+        const item = document.createElement("div");
+        item.className = "accordion-item";
+
+        const header = document.createElement("div");
+        header.className = "accordion-header";
+        header.innerHTML = `Token ${tok.token_index} <span class="icon">▶</span>`;
+        const body = document.createElement("div");
+        body.className = "accordion-body";
+
+        header.onclick = () => {
+          const isOpen = body.style.display === "block";
+          body.style.display = isOpen ? "none" : "block";
+          header.classList.toggle("active", !isOpen);
+        };
+
+        const addVector = (name, arr) => {
+          if (!arr) return;
+          const cont = document.createElement("div");
+          const preview = arr.slice(0, 8).join(", ") + (arr.length > 8 ? ", ..." : "");
+          cont.innerHTML = `<b>${name}:</b> <div class="vector">${preview}</div>`;
+          if (arr.length > 8) {
+            const exp = document.createElement("div");
+            exp.className = "expand-btn";
+            exp.innerText = "Expand full vector";
+            exp.onclick = () => {
+              cont.innerHTML = `<b>${name}:</b> <div class="vector">${arr.join(", ")}</div>`;
+            };
+            cont.appendChild(exp);
+          }
+          body.appendChild(cont);
+        };
+
+        addVector("Q", tok.q);
+        addVector("K", tok.k);
+        addVector("V", tok.v);
+        addVector("Scores Raw", tok.scores_raw);
+        addVector("Scores Masked", tok.scores_masked);
+        addVector("Weights Softmax", tok.weights_softmax);
+        addVector("Weights Dropout", tok.weights_after_dropout);
+        addVector("Context", tok.context);
+
+        item.appendChild(header);
+        item.appendChild(body);
+        acc.appendChild(item);
+      });
+      div.appendChild(acc);
+
+      details.appendChild(div);
     }
 
-    function looksLikeDecoder(o){
-      if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
-      return ['layer_index','num_heads','head_dim','heads','head'].some(k => k in o);
-    }
-    function gatherDecoders(root, maxDepth=12){
-      const out=[], seen=new WeakSet();
-      (function walk(node, depth){
-        if (!node || depth>maxDepth || typeof node!=='object' || seen.has(node)) return;
-        seen.add(node);
-        if (looksLikeDecoder(node)){ out.push(node); return; }
-        if (Array.isArray(node)) node.forEach(n=>walk(n, depth+1));
-        else Object.values(node).forEach(v=>walk(v, depth+1));
-      })(root,0);
-      return out;
-    }
-
-    window.onload = fetchAndRenderData;
+    loadData();
   </script>
 </body>
 </html>
