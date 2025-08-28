@@ -286,16 +286,41 @@ def decoder_head(layer_idx: int, head_idx: int):
         "meta": header,
         "data": head,  # includes ordered 'trace' if you log it that way
     }
-@app.get("/output")
-def read_output():
-    print("NAVAL fetching output")
-    path =  os.path.join(LOG_DIR, "output.json")
+
+def _read_output_json(filename: str) -> JSONResponse:
+    path = os.path.join(LOG_DIR, filename)
     if not os.path.exists(path):
-        print("fetching output 1")
-        return JSONResponse({"status": "error", "msg": "no output.json yet"}, status_code=404)
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return {"status": "ok", "data": data, "file": path, "updated_unix": os.path.getmtime(path)}
+        raise HTTPException(status_code=404, detail=f"{filename} not found")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"bad json in {filename}: {e}")
+    return JSONResponse(
+        content=data,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
+@app.get("/output")
+def get_manifest():
+    # Return the manifest itself (no wrapper)
+    print("NAVAL output ")
+    return _read_output_json("output.json")
+
+@app.get("/output_full_pre.json")
+def get_full_pre():
+    print("NAVAL output_full_pre ")
+    return _read_output_json("output_full_pre.json")
+
+@app.get("/output_full_final.json")
+def get_full_final():
+    print("NAVAL output_output_full_final ")
+    return _read_output_json("output_full_final.json")
+
+@app.get("/output_full_logits.json")
+def get_full_logits():
+    print("NAVAL output_output_full_logits ")
+    return _read_output_json("output_full_logits.json")
 
 @app.get("/FFN/{layer_idx}") 
 def read_output(layer_idx):
@@ -309,7 +334,15 @@ def read_output(layer_idx):
         data = json.load(f)
     return {"status": "ok", "data": data, "file": path, "updated_unix": os.path.getmtime(path)}
 
-
+@app.get("/param_wq")
+def read_loss():
+    print("NAVAL param_wq implimented")
+    path = os.path.join(LOG_DIR, "attn_qkv_Wq.json")
+    if not os.path.exists(path):
+        return {"status": "error", "msg": "no loss.json yet"}
+    with open(path, "r") as f:
+        data = json.load(f)
+    return {"status": "ok", "data": data, "file": path, "updated_unix": os.path.getmtime(path)}
 @app.get("/loss")
 def read_loss():
     print("NAVAL no loss implimented")

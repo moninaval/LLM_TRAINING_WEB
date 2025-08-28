@@ -1,298 +1,445 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>LLM Loss Explorer 🎓</title>
-  <!-- KaTeX for rendering math formulas -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" xintegrity="sha384-n8MVd4RsNIU0KOVEMcADelegTRmortBCqcZogxmaDKszYLiLectureo7CortfNEackfEVgNiEgXgl/6gUgdIMsvUiw" crossorigin="anonymous">
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" xintegrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUbKyIyUH" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" xintegrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
-
+  <meta charset="UTF-8" />
+  <title>🎓 Loss & Gradient Flow Explorer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      margin: 0;
-      background-color: #f8fafc;
-      color: #1e293b;
+    :root{
+      --bg:#0b1220; --card:#0f172a; --card2:#111827; --muted:#9ca3af;
+      --text:#e5e7eb; --accent:#60a5fa; --accent2:#22d3ee; --border:#1f2937;
+      --chip:#1e293b; --chipActive:#3b82f6;
     }
-    .container {
-      max-width: 1200px;
-      margin: 24px auto;
-      padding: 0 24px;
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b1220, #0b1220 60%, #0c1324);
+         color:var(--text); font-family: ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+    .container{max-width:1700px;margin:0 auto;padding:18px}
+    .title{
+      text-align:center; padding:14px 10px; border-radius:14px;
+      background:linear-gradient(90deg, rgba(96,165,250,.12), rgba(34,211,238,.12));
+      border:1px solid rgba(96,165,250,.25); margin-bottom:16px;
     }
-    h1, h2, h3 {
-      color: #0f172a;
-      font-weight: 600;
-      letter-spacing: -0.025em;
-    }
-    h1 { font-size: 28px; margin-bottom: 8px; }
-    h2 { margin: 24px 0 10px; font-size: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;}
-    h3 { font-size: 16px; margin: 18px 0 8px; }
+    .title h1{margin:0; font-size:24px; letter-spacing:.2px}
+    .progress{height:4px; background:#101827; border-radius:999px; overflow:hidden; margin:12px auto 16px; max-width:520px;}
+    .progress::after{content:""; display:block; height:100%; width:40%;
+      background:linear-gradient(90deg, var(--accent), var(--accent2));
+      animation:load 1.05s linear infinite; border-radius:999px;}
+    @keyframes load{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 
-    .header-intro {
-        background-color: #fff; border:1px solid #e2e8f0; border-radius:12px;
-        padding: 20px; margin-bottom: 24px; line-height: 1.6;
-    }
-    .muted { color:#64748b; text-align: center; padding: 40px; }
-    
-    .main-layout {
-        display: grid;
-        grid-template-columns: 350px 1fr;
-        gap: 24px;
-        align-items: flex-start;
-    }
-    .left-column, .right-column { display: flex; flex-direction: column; gap: 24px; }
+    .layout{display:grid; grid-template-columns: 290px 1fr 320px; gap:16px}
 
-    .info-box {
-        background-color: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 16px;
-    }
-    
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border:1px solid #e2e8f0; padding: 10px; vertical-align: middle; text-align: left; }
-    th { background:#f8fafc; width: 180px; font-weight: 500; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background-color: #f1f5f9; padding: 2px 4px; border-radius: 4px; font-size: 0.9em; }
-    
-    .tooltip { position: relative; display: inline-block; border-bottom: 1px dotted #64748b; cursor: help; }
-    .tooltip .tooltiptext { visibility: hidden; width: 280px; background-color: #1e293b; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -140px; opacity: 0; transition: opacity 0.3s; font-weight: normal; font-size: 13px; }
-    .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
-    
-    .formula-display {
-        text-align: center;
-        font-size: 1.2em;
-        padding: 10px;
-        background-color: #f1f5f9;
-        border-radius: 8px;
-    }
-    
-    .hardest-tokens-table th:last-child,
-    .hardest-tokens-table td:last-child {
-        background-color: #fef9c3; /* Highlight the NLL column */
-        font-weight: 600;
-    }
+    .card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px}
+    .card h2{margin:0 0 10px 0; font-size:18px; letter-spacing:.2px}
+    .card h3{margin:8px 0 8px 0; font-size:16px}
+    .card p{color:var(--muted); margin:6px 0 10px; line-height:1.4; font-size:13px}
+    .smallnote{font-size:12px; color:#9aa3b0; margin:6px 0 10px}
+    .flow-card{border-left:3px solid var(--accent); padding-left:12px; margin:14px 0 16px}
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .chip{background:var(--chip); color:#cbd5e1; border:1px solid var(--border);
+          padding:6px 10px; border-radius:999px; font-size:12px}
+    .chip.ghost{opacity:.7}
+    .pill{padding:6px 10px; border-radius:999px; background:rgba(96,165,250,.16); border:1px solid rgba(96,165,250,.25); color:#cfe3ff; font-size:12px}
+    .btn{padding:8px 12px; border-radius:10px; background:linear-gradient(90deg, var(--accent), var(--accent2)); color:#04101d; font-weight:600; border:none; cursor:pointer}
+    .btn:active{transform:translateY(1px)}
+
+    /* Tables */
+    table{width:100%; border-collapse:collapse; margin-top:8px}
+    th,td{border:1px solid var(--border); padding:8px; font-size:13px; text-align:left}
+    th{background:var(--card2)}
+    .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:#d1d5db}
+
+    /* Matrix & JSON views */
+    .matrix{font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+            background:#0a1221; border:1px solid #182032; color:#c6d5f3;
+            padding:8px; border-radius:10px; overflow-x:auto; white-space:pre}
+    .scroll-box{max-height:400px; overflow:auto}
+    details{margin-top:8px}
+    summary{cursor:pointer}
+
+    /* Tabs */
+    .tabs{display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 6px}
+    .tab{padding:7px 12px; border-radius:10px; background:#0d1628; border:1px solid #1a2742; color:#a9bedc; cursor:pointer; font-size:13px}
+    .tab.active{background:#1c2f54; color:#fff; border-color:#31548e}
+
+    /* flow arrows */
+    .arrow{color:#7aa8ff; margin: 0 6px}
+    .muted{color:#9aa3b0}
   </style>
 </head>
 <body>
-<div class="container">
-  <h1>🎓 LLM Loss Explorer</h1>
-  <div class="header-intro">
-    <p>This page shows the <strong>loss metrics</strong> for a single step of an LLM's training. <strong>Loss</strong> is a crucial concept: it's a number that measures how "wrong" or "surprised" the model was by the correct answer. The entire goal of training is to adjust the model's parameters to make this number as low as possible over time.</p>
+  <div class="container">
+    <div class="title">
+      <h1>🎓 Loss & Gradient <span class="mono">Flow</span> Explorer</h1>
+      <div class="row" style="justify-content:center; margin-top:8px">
+        <span class="chip">Live training step view</span>
+        <span class="chip ghost">Shows X → Wq → Q(h) → ∂L/∂Q(h) → ∇Wq</span>
+      </div>
+    </div>
+
+    <div id="globalProgress" class="progress"></div>
+
+    <div class="layout">
+      <!-- LEFT: Stats -->
+      <div class="card" id="statsBox"><h2>Overall Stats</h2><p class="muted">Loading…</p></div>
+
+      <!-- CENTER: Main Flow -->
+      <div id="flow" class="card">
+        <h2>Gradient Flow (Query path)</h2>
+        <div class="row">
+          <span class="pill">Q = X · Wq</span>
+          <span class="arrow">➡️</span>
+          <span class="pill">∇Wq = Xᵀ · ∇Q</span>
+        </div>
+        <p class="smallnote">Follow how the loss propagates back into the Query projection. Tabs let you inspect each head’s Q and ∂L/∂Q.</p>
+        <div class="matrix">Waiting for parameter snapshot…</div>
+      </div>
+
+      <!-- RIGHT: Hardest Tokens -->
+      <div class="card" id="hardestTokensBox"><h2>Hardest Tokens</h2><p class="muted">Loading…</p></div>
+    </div>
   </div>
 
-  <div id="content" class="muted">Loading Loss Data…</div>
-</div>
+  <script>
+    const LOSS_ENDPOINT  = "/loss";
+    const PARAM_ENDPOINT = "/param_wq";
 
-<script>
-const ENDPOINT = "/loss";
-const USE_CREDENTIALS = false;
+    let loadedPieces = 0;
+    function pieceLoaded() {
+      loadedPieces += 1;
+      if (loadedPieces >= 2) {
+        const gp = document.getElementById("globalProgress");
+        if (gp) gp.style.display = "none";
+      }
+    }
 
-// ---- robust metrics finder (recursive) ----
-function looksLikeMetrics(obj) {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-  return ('loss' in obj) || ('hardest_tokens' in obj) || ('step' in obj);
-}
-function findMetrics(root, maxDepth = 10) {
-  const seen = new WeakSet();
-  function walk(node, depth) {
-    if (!node || depth > maxDepth || typeof node !== 'object') return null;
-    if (seen.has(node)) return null;
-    seen.add(node);
-    if (looksLikeMetrics(node)) return node;
-    if (Array.isArray(node)) {
-      for (const el of node) {
-        const hit = walk(el, depth + 1);
-        if (hit) return hit;
+    /* ---------- helpers to find objects in nested JSON ---------- */
+    function looksLikeLoss(o){return o && typeof o==='object' && (('loss' in o)||('step' in o)||('hardest_tokens' in o));}
+    function looksLikeParam(o){return o && typeof o==='object' && ('parameter_name' in o);}
+    function deepFind(root, pred, depth=0, maxDepth=10){
+      if (!root || depth>maxDepth) return null;
+      if (pred(root)) return root;
+      if (Array.isArray(root)) {
+        for (const el of root){const hit=deepFind(el,pred,depth+1,maxDepth); if (hit) return hit;}
+        return null;
+      }
+      if (typeof root==='object'){
+        for (const k of Object.keys(root)){const hit=deepFind(root[k],pred,depth+1,maxDepth); if (hit) return hit;}
       }
       return null;
     }
-    for (const key of Object.keys(node)) {
-      const hit = walk(node[key], depth + 1);
-      if (hit) return hit;
+
+    /* ---------- UI builders ---------- */
+    function mkRow(key,val){
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<th>${key}</th><td class="mono">${Array.isArray(val)? JSON.stringify(val): (val ?? '')}</td>`;
+      return tr;
     }
-    return null;
-  }
-  return walk(root, 0);
-}
+    function renderStats(obj){
+      const box=document.getElementById('statsBox');
+      box.innerHTML = `<h2>Overall Stats</h2>`;
+      const tbl=document.createElement('table'); const tbody=document.createElement('tbody');
+      const data = {
+        "Step": obj.step, "Loss": obj.loss, "PPL": obj.ppl, "PPL Overflow": obj.ppl_overflow,
+        "Batch Size": obj.batch_size, "Seq Len": obj.seq_len, "Vocab Size": obj.vocab_size,
+        "Ignore Index": obj.ignore_index, "Label Smoothing": obj.label_smoothing,
+        "Per-sequence Loss": obj.per_seq_loss
+      };
+      Object.entries(data).forEach(([k,v]) => { if (v!==undefined && v!==null) tbody.appendChild(mkRow(k,v)); });
+      tbl.appendChild(tbody); box.appendChild(tbl);
+    }
+    function renderHardestTokens(arr){
+      const box=document.getElementById('hardestTokensBox');
+      box.innerHTML = `<h2>Hardest Tokens</h2>`;
+      if (!arr || !arr.length){ box.innerHTML += `<p class="muted">No items.</p>`; return; }
+      const tbl=document.createElement('table');
+      tbl.innerHTML = `<thead><tr><th>B</th><th>T</th><th>Target</th><th>Pred</th><th>NLL</th></tr></thead>`;
+      const tbody=document.createElement('tbody');
+      arr.forEach(tok=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML = `<td>${tok.b}</td><td>${tok.t}</td>
+                        <td>${tok.target_token ?? tok.target_id}</td>
+                        <td>${tok.pred_token ?? tok.pred_id}</td>
+                        <td class="mono">${tok.nll?.toFixed ? tok.nll.toFixed(4) : tok.nll}</td>`;
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      box.appendChild(tbl);
+    }
 
-// ---- rendering helpers ----
-const metricDocs = {
-    'Step': { desc: 'The current training iteration number.' },
-    'Loss': { desc: 'The average negative log-likelihood over all tokens in the batch. This is the primary value we want to minimize.' },
-    'PPL': { desc: 'Perplexity (e^loss). An intuitive measure of how many choices the model was effectively considering for the next token. Lower is better.' },
-    'PPL Overflow': { desc: 'Indicates if the perplexity calculation resulted in a number too large to represent, often due to a very high loss.' },
-    'Batch Size': { desc: 'The number of sequences processed in this step.' },
-    'Seq Len': { desc: 'The length of each sequence in the batch.' },
-    'Vocab Size': { desc: 'The total number of unique tokens the model knows.' },
-    'Ignore Index': { desc: 'A special token ID (often -100) used in labels to indicate positions that should be ignored when calculating the loss.' },
-    'Label Smoothing': { desc: 'A regularization technique that prevents the model from becoming too confident in its predictions, which can improve generalization.' },
-    'Per-sequence Loss': { desc: 'The individual loss value calculated for each sequence in the batch.' }
-};
+    /* ---------- pretty matrix renderers (book-style) ---------- */
+    function previewRows2x8(seq){
+      // first 2 tokens x 8 dims preview
+      return (seq||[]).slice(0,2).map((tok,ti)=>`Token ${ti}: ` + (tok||[]).slice(0,8).map(n=>typeof n==="number"? n.toFixed(3): n).join(" ")).join("\n");
+    }
 
-function createTooltip(key) {
-    const doc = metricDocs[key];
-    if (!doc) return document.createTextNode(key);
-    const span = document.createElement('span');
-    span.className = 'tooltip';
-    span.textContent = key;
-    const tooltipText = document.createElement('span');
-    tooltipText.className = 'tooltiptext';
-    tooltipText.textContent = doc.desc;
-    span.appendChild(tooltipText);
-    return span;
-}
+    function renderInputX(X){
+      if(!X) return `<div class="flow-card"><p class="muted">No X found.</p></div>`;
+      const dModel = X?.[0]?.[0]?.length ?? 'd_model';
+      let html = `<div class="flow-card">
+        <h3>Input X — Sequence Embeddings</h3>
+        <p class="smallnote">
+          Each sequence has <b>T</b> tokens; each token is a <b>${dModel}</b>-dimensional vector (<em>d<sub>model</sub></em>).
+          Expand any sequence to inspect token vectors. (Horizontal scroll for long rows.)
+        </p>`;
 
-function mkRow(key, val){
-  const tr = document.createElement('tr');
-  const th = document.createElement('th');
-  th.appendChild(createTooltip(key));
-  const td = document.createElement('td');
-  td.className = 'mono';
-  if (Array.isArray(val)) {
-    td.textContent = val.map(v => v.toFixed ? v.toFixed(4) : v).join(', ');
-  } else {
-    td.textContent = (val === null || val === undefined) ? '' : String(val);
-  }
-  tr.appendChild(th); tr.appendChild(td);
-  return tr;
-}
+      X.forEach((seq, si)=>{
+        const T = seq?.length ?? '?';
+        const preview = previewRows2x8(seq);
+        html += `
+          <details>
+            <summary><span class="chip">Sequence ${si}</span> <span class="muted">— ${T} tokens</span></summary>
+            <div class="matrix">Preview (first 2 tokens × 8 dims)
+${preview}${T>2? "\n..." : ""}</div>
+            <details>
+              <summary>Token-wise (segmented rows)</summary>
+              <div class="scroll-box">
+                ${seq.map((tok,ti)=>{
+                  const rowPrev = (tok||[]).slice(0,8).map(v=>typeof v==="number"? v.toFixed(3): v).join(" ");
+                  return `<details><summary>Token ${ti} — first 8 dims: <span class="mono">${rowPrev}</span> …</summary>
+                            <div class="matrix">${JSON.stringify(tok)}</div>
+                          </details>`;
+                }).join("")}
+              </div>
+            </details>
+            <details>
+              <summary>Full JSON (sequence)</summary>
+              <div class="matrix scroll-box">${JSON.stringify(seq,null,2)}</div>
+            </details>
+          </details>
+        `;
+      });
 
-function renderStats(obj){
-  const table = document.createElement('table');
-  const tbody = document.createElement('tbody');
-  const data = {
-      'Step': obj.step,
-      'Loss': obj.loss,
-      'PPL': obj.ppl,
-      'PPL Overflow': obj.ppl_overflow,
-      'Batch Size': obj.batch_size,
-      'Seq Len': obj.seq_len,
-      'Vocab Size': obj.vocab_size,
-      'Ignore Index': obj.ignore_index,
-      'Label Smoothing': obj.label_smoothing,
-      'Per-sequence Loss': obj.per_seq_loss
-  };
-  Object.entries(data).forEach(([key, val]) => {
-      if (val !== undefined && val !== null) {
-          tbody.appendChild(mkRow(key, val));
+      html += `</div>`;
+      return html;
+    }
+
+    function renderWq(Wq, numHeads=8){
+      if(!Wq) return `<div class="flow-card"><p class="muted">No Wq found.</p></div>`;
+      const dModel = Wq.length;
+      const dHead  = Math.floor(dModel / numHeads);
+      const topLeft = Wq.slice(0,5).map(r=>r.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
+
+      let html = `<div class="flow-card">
+        <h3>Projection Matrix Wq</h3>
+        <p class="smallnote">
+          Shape: <b>[${dModel} × ${dModel}]</b>. Conceptually partitioned into <b>${numHeads}</b> head blocks of size
+          <b>[${dModel} × ${dHead}]</b> (columns). Formula: <span class="mono">Q = X · Wq</span>.
+        </p>
+        <div class="matrix">Preview (top-left 5×8)
+${topLeft}
+        </div>
+        <details>
+          <summary>Head-wise column blocks</summary>
+          <div class="scroll-box">
+            ${Array.from({length:numHeads}).map((_,h)=>{
+              const c0 = h*dHead, c1 = c0 + dHead;
+              const block = Wq.slice(0,5).map(r=>r.slice(c0, Math.min(c1, c0+8)).map(v=>v.toFixed(3)).join(" ")).join("\n");
+              return `<details><summary>Head ${h} — columns [${c0}:${c1})</summary>
+                        <div class="matrix">Preview (rows 0..4 × first 8 cols of head ${h})
+${block}
+                        </div>
+                      </details>`;
+            }).join("")}
+          </div>
+        </details>
+        <details>
+          <summary>Full Wq (row-wise segmentation)</summary>
+          <div class="scroll-box">
+            ${Wq.map((row,ri)=>{
+              const prev=row.slice(0,8).map(v=>v.toFixed(3)).join(" ");
+              return `<details><summary>Row ${ri} — first 8 dims: <span class="mono">${prev}</span> …</summary>
+                        <div class="matrix">${JSON.stringify(row)}</div>
+                      </details>`;
+            }).join("")}
+          </div>
+        </details>
+      </div>`;
+      return html;
+    }
+
+    function renderQHead(Q2D, headIndex){
+      if(!Q2D) return '';
+      const T=Q2D.length, dHead=(Q2D?.[0]?.length ?? '?');
+      const preview = Q2D.slice(0,3).map((tok,ti)=>"Token "+ti+": "+tok.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
+      let html = `<div class="flow-card">
+        <h3>Projected Queries Q — Head ${headIndex}</h3>
+        <p class="smallnote">Shape: <b>[${T} × ${dHead}]</b>. Produced by <span class="mono">Q = X · Wq</span> then reshaped into heads.</p>
+        <details open><summary>Preview (first 3 tokens × 8 dims)</summary>
+          <div class="matrix">${preview}${T>3? "\n..." : ""}</div>
+        </details>
+        <details>
+          <summary>Full Q by tokens (${T})</summary>
+          <div class="scroll-box">
+            ${Q2D.map((tok,ti)=>{
+              const rowPrev=tok.slice(0,8).map(v=>v.toFixed(3)).join(" ");
+              return `<details><summary>Token ${ti} — first 8 dims: <span class="mono">${rowPrev}</span> …</summary>
+                        <div class="matrix">${JSON.stringify(tok)}</div>
+                      </details>`;
+            }).join("")}
+          </div>
+        </details>
+      </div>`;
+      return html;
+    }
+
+    function renderDLdQHead(D2D, headIndex){
+      if(!D2D) return '';
+      const T=D2D.length, dHead=(D2D?.[0]?.length ?? '?');
+      const preview = D2D.slice(0,3).map((tok,ti)=>"Token "+ti+": "+tok.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
+      let html = `<div class="flow-card">
+        <h3>Gradient w.r.t Q (∂L/∂Q) — Head ${headIndex}</h3>
+        <p class="smallnote">Shape: <b>[${T} × ${dHead}]</b>. Error signals that flow back to queries in this head.</p>
+        <details open><summary>Preview (first 3 tokens × 8 dims)</summary>
+          <div class="matrix">${preview}${T>3? "\n..." : ""}</div>
+        </details>
+        <details>
+          <summary>Full ∂L/∂Q by tokens (${T})</summary>
+          <div class="scroll-box">
+            ${D2D.map((tok,ti)=>{
+              const rowPrev=tok.slice(0,8).map(v=>v.toFixed(3)).join(" ");
+              return `<details><summary>Token ${ti} — first 8 dims: <span class="mono">${rowPrev}</span> …</summary>
+                        <div class="matrix">${JSON.stringify(tok)}</div>
+                      </details>`;
+            }).join("")}
+          </div>
+        </details>
+      </div>`;
+      return html;
+    }
+
+    function renderGradWq(grad){
+      if(!grad) return `<div class="flow-card"><p class="muted">No ∇Wq found.</p></div>`;
+      const H = grad.length, W = grad?.[0]?.length ?? '?';
+      const topLeft = grad.slice(0,5).map(r=>r.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
+      let html = `<div class="flow-card">
+        <h3>Gradient of Wq (∇Wq)</h3>
+        <p class="smallnote">
+          Shape: <b>[${H} × ${W}]</b>. Formula: <span class="mono">∇Wq = Xᵀ · ∇Q</span>.
+          Each element: <span class="mono">∂L/∂Wq[i,j] = Σₜ X[t,i] · ∂L/∂Q[t,j]</span>
+        </p>
+        <div class="matrix">Preview (top-left 5×8)
+${topLeft}
+        </div>
+        <details>
+          <summary>Full ∇Wq (row-wise segmentation)</summary>
+          <div class="scroll-box">
+            ${grad.map((row,ri)=>{
+              const prev=row.slice(0,8).map(v=>v.toFixed(3)).join(" ");
+              return `<details><summary>Row ${ri} — first 8 dims: <span class="mono">${prev}</span> …</summary>
+                        <div class="matrix">${JSON.stringify(row)}</div>
+                      </details>`;
+            }).join("")}
+          </div>
+        </details>
+      </div>`;
+      return html;
+    }
+
+    /* ---------- Load /loss ---------- */
+    async function loadLoss(){
+      try{
+        const res = await fetch(LOSS_ENDPOINT+`?ts=${Date.now()}`, {cache:'no-store'});
+        const payload = await res.json();
+        const obj = deepFind(payload, looksLikeLoss) || payload;
+        renderStats(obj);
+        renderHardestTokens(obj.hardest_tokens);
+      }catch(e){
+        document.getElementById('statsBox').innerHTML = `<h2>Overall Stats</h2><p class="muted">Failed to load.</p>`;
+        document.getElementById('hardestTokensBox').innerHTML = `<h2>Hardest Tokens</h2><p class="muted">Failed to load.</p>`;
+        console.error(e);
+      } finally { pieceLoaded(); }
+    }
+
+    /* ---------- Load /param_wq & build flow ---------- */
+    let PARAM_OBJ = null;
+
+    function buildHeadTabs(numHeads){
+      const wrap = document.createElement('div');
+      wrap.className = 'tabs';
+      for (let h=0; h<numHeads; h++){
+        const b=document.createElement('div');
+        b.className='tab';
+        b.id = `tab-${h}`;
+        b.textContent = `Head ${h}`;
+        b.onclick = ()=> showHead(h);
+        wrap.appendChild(b);
       }
-  });
-  table.appendChild(tbody);
-  return table;
-}
-
-function renderHardestTokens(arr){
-  const table = document.createElement('table');
-  table.className = 'hardest-tokens-table';
-  const thead = document.createElement('thead');
-  thead.innerHTML = `
-    <tr>
-      <th>Batch Idx (b)</th>
-      <th>Seq Idx (t)</th>
-      <th>Target ID</th>
-      <th>Target Token</th>
-      <th>Pred ID</th>
-      <th>Pred Token</th>
-      <th>NLL</th>
-    </tr>`;
-  table.appendChild(thead);
-  const tbody = document.createElement('tbody');
-  (arr || []).forEach(tok => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${tok?.b ?? ''}</td>
-      <td>${tok?.t ?? ''}</td>
-      <td>${tok?.target_id ?? ''}</td>
-      <td>${tok?.target_token ?? ''}</td>
-      <td>${tok?.pred_id ?? ''}</td>
-      <td>${tok?.pred_token ?? ''}</td>
-      <td class="mono">${tok?.nll?.toFixed(4) ?? ''}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-  return table;
-}
-
-// --- Main rendering function for the new layout ---
-function renderContent(obj, container) {
-    container.innerHTML = ''; // Clear the 'Loading...' message
-
-    const mainLayout = document.createElement('div');
-    mainLayout.className = 'main-layout';
-
-    const leftColumn = document.createElement('div');
-    leftColumn.className = 'left-column';
-
-    const rightColumn = document.createElement('div');
-    rightColumn.className = 'right-column';
-
-    mainLayout.appendChild(leftColumn);
-    mainLayout.appendChild(rightColumn);
-    container.appendChild(mainLayout);
-    
-    // --- Left Column: Formula and Context ---
-    const formulaBox = document.createElement('div');
-    formulaBox.className = 'info-box';
-    formulaBox.innerHTML = '<h2>Loss Formula</h2>';
-    const formulaDisplay = document.createElement('div');
-    formulaDisplay.className = 'formula-display';
-    formulaDisplay.textContent = obj.formula || `L_{CE} = -\\sum_{i=1}^{C} y_i \\log(\\hat{y}_i)`;
-    formulaBox.appendChild(formulaDisplay);
-    formulaBox.innerHTML += `<p style="font-size: 14px; color: #475569; text-align: center; margin-top: 10px;">This is the <strong>Cross-Entropy Loss</strong>, which measures the difference between the predicted probability distribution (ŷ) and the true one-hot encoded label (y).</p>`;
-    leftColumn.appendChild(formulaBox);
-    renderMathInElement(formulaBox);
-
-    // --- Right Column: Stats and Hardest Tokens ---
-    const statsBox = document.createElement('div');
-    statsBox.className = 'info-box';
-    statsBox.innerHTML = '<h2>Overall Stats</h2>';
-    statsBox.appendChild(renderStats(obj));
-    rightColumn.appendChild(statsBox);
-
-    const hardestTokensBox = document.createElement('div');
-    hardestTokensBox.className = 'info-box';
-    hardestTokensBox.innerHTML = `
-        <h2>Hardest Tokens to Predict</h2>
-        <p style="font-size: 14px; color: #475569; line-height: 1.5;">This table shows the specific tokens where the model was most "surprised" (had the highest loss). A high <strong>NLL</strong> (Negative Log-Likelihood) means the model assigned a very low probability to the correct token. This is extremely useful for seeing what kinds of patterns the model is failing to learn.</p>
-    `;
-    hardestTokensBox.appendChild(renderHardestTokens(obj.hardest_tokens));
-    rightColumn.appendChild(hardestTokensBox);
-}
-
-async function load(){
-  const out = document.getElementById('content');
-  try {
-    const res = await fetch(ENDPOINT + `?ts=${Date.now()}`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json, text/plain;q=0.9, */*;q=0.8' },
-      cache: 'no-store',
-      mode: 'cors',
-      credentials: USE_CREDENTIALS ? 'include' : 'omit'
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-
-    const text = await res.text();
-    let payload;
-    try { payload = JSON.parse(text); }
-    catch {
-      const cleaned = text.replace(/^\uFEFF/, '').replace(/^\)\]\}',?\s*\n?/, '').trim();
-      payload = JSON.parse(cleaned);
+      return wrap;
     }
 
-    const obj = findMetrics(payload);
-    if (!obj) throw new Error('Could not find metrics object in response.');
+    function showHead(h){
+      if (!PARAM_OBJ) return;
+      const headContainer = document.getElementById('headContent');
+      if (!headContainer) return;
 
-    renderContent(obj, out);
-    
-  } catch (e) {
-    console.error("Failed to load or render loss data:", e);
-    out.textContent = `Failed to load or parse data from ${ENDPOINT}. Check the browser console (F12) for more details.`;
-  }
-}
+      // Deactivate tabs
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      const t = document.getElementById(`tab-${h}`); if (t) t.classList.add('active');
 
-load();
-</script>
+      // Q and ∂L/∂Q for this head (Batch 0)
+      const Qh   = PARAM_OBJ?.Q?.[0]?.[h];
+      const DQh  = PARAM_OBJ?.dLdQ?.[0]?.[h];
+
+      let html = '';
+      html += renderQHead(Qh, h);
+      html += renderDLdQHead(DQh, h);
+      headContainer.innerHTML = html || `<p class="muted">No data for this head.</p>`;
+    }
+
+    async function loadFlow(){
+      const flow = document.getElementById('flow');
+      try{
+        const res = await fetch(PARAM_ENDPOINT+`?ts=${Date.now()}`, {cache:'no-store'});
+        if (!res.ok){ flow.innerHTML = `<p class="muted">Backward trace endpoint not enabled yet.</p>`; return; }
+        const payload = await res.json();
+        const obj = deepFind(payload, looksLikeParam) || payload;
+        PARAM_OBJ = obj;
+
+        // Header with step/loss/param
+        let html = `<div class="row" style="justify-content:space-between; align-items:center;">
+                      <div class="row">
+                        <span class="pill">Step: <span class="mono">${obj.step ?? 'n/a'}</span></span>
+                        <span class="pill">Loss: <span class="mono">${(obj.loss ?? 'n/a')}</span></span>
+                      </div>
+                      <span class="chip">Param: ${obj.parameter_name || 'Wq'}</span>
+                    </div>`;
+
+        // 1) Input X (book-style per sequence)
+        html += renderInputX(obj.X);
+
+        // 2) Wq (book-style; head-wise column blocks)
+        html += renderWq(obj.Wq, (obj.Q?.[0]?.length || 8));
+
+        // 3) Head tabs: per-head Q and ∂L/∂Q (Batch 0)
+        const numHeads = obj.Q?.[0]?.length || 0;
+        if (numHeads > 0){
+          html += `<div class="flow-card"><h3>Head Views</h3>
+                     <p class="smallnote">Switch between heads to see projected queries and their gradients.</p>
+                     <div id="headTabs"></div>
+                     <div id="headContent"></div>
+                   </div>`;
+        }
+
+        // 4) ∇Wq at the end
+        html += renderGradWq(obj.grad_Wq);
+
+        flow.innerHTML = html;
+
+        if (numHeads > 0){
+          const tabs = buildHeadTabs(numHeads);
+          document.getElementById('headTabs').appendChild(tabs);
+          showHead(0); // default to head 0
+        }
+
+      }catch(e){
+        flow.innerHTML = `<div class="matrix">Failed to load parameter snapshot.</div>`;
+        console.error(e);
+      } finally { pieceLoaded(); }
+    }
+
+    // Init
+    loadLoss();
+    loadFlow();
+  </script>
 </body>
 </html>
