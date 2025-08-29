@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LLM Memory Estimator 📊</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body {
+    font-family: 'Georgia', serif;
+    background: #fdfdfc;
+    margin: 0; padding: 0;
+    color: #222;
+  }
+  header {
+    background: #fff;
+    border-bottom: 2px solid #ddd;
+    padding: 12px 20px;
+  }
+  header h1 {
+    margin: 0; font-size: 22px; font-weight: 700;
+    color: #2c3e50;
+  }
+  .container {
+    max-width: 1200px; margin: 20px auto; padding: 0 20px;
+  }
+  .inputs {
+    background: #fff;
+    border: 1px solid #ccc; border-radius: 10px;
+    padding: 16px; margin-bottom: 20px;
+  }
+  .inputs label { font-weight: 600; margin-right: 8px; }
+  .inputs input { width: 80px; margin-right: 15px; padding: 5px; }
+  .inputs select { margin-right: 15px; }
+  .inputs button {
+    background: #3b82f6; color: #fff; border: none;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer;
+  }
+  .inputs button:hover { background: #2563eb; }
+
+  details { margin: 10px 0; }
+  summary { cursor: pointer; font-weight: 700; padding: 6px; background: #f3f4f6; border-radius: 6px; }
+  summary:hover { background: #e5e7eb; }
+
+  table {
+    border-collapse: collapse; width: 100%; margin-top: 8px;
+    background: #fff; border-radius: 8px; overflow: hidden;
+  }
+  th, td {
+    border: 1px solid #ddd; padding: 8px; font-size: 14px;
+    text-align: left; vertical-align: top;
+  }
+  th { background: #f9fafb; }
+  td.formula { color: #555; font-size: 12px; font-style: italic; }
+
+  .highlight { background: #fef3c7; font-weight: 600; }
+  .section-title { font-size: 18px; margin-top: 30px; color: #2c3e50; border-bottom: 2px solid #ccc; padding-bottom: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LLM Memory Estimator 📊</h1>
+</header>
+<div class="container">
+  <div class="inputs">
+    <label>Batch Size: <input id="batch" type="number" value="2"></label>
+    <label>Seq Len: <input id="seq" type="number" value="128"></label>
+    <label>d_model: <input id="dmodel" type="number" value="256"></label>
+    <label>FFN dim: <input id="ffn" type="number" value="1024"></label>
+    <label>Heads: <input id="heads" type="number" value="8"></label>
+    <label>Vocab: <input id="vocab" type="number" value="51200"></label>
+    <label>Layers: <input id="layers" type="number" value="12"></label>
+    <label>Precision:
+      <select id="precision">
+        <option value="32">FP32</option>
+        <option value="16">FP16</option>
+        <option value="amp">AMP (Mixed)</option>
+      </select>
+    </label>
+    <button onclick="calculate()">📊 Calculate Now</button>
+  </div>
+
+  <h2 class="section-title">Per-Decoder Layer Breakdown</h2>
+  <div id="layerTables"></div>
+
+  <h2 class="section-title">Global Components</h2>
+  <div id="globalTable"></div>
+
+  <h2 class="section-title">Optimizer States (AdamW)</h2>
+  <div id="optimTable"></div>
+
+  <h2 class="section-title">Total Memory Summary</h2>
+  <div id="summaryTable"></div>
+</div>
+
+<script>
+function gb(x, precision) {
+  let bytes = x * (precision === "32" ? 4 : 2); // FP32=4B, FP16=2B
+  return (bytes / (1024**3)).toFixed(4) + " GB";
+}
+function calculate() {
+  let batch = +document.getElementById("batch").value;
+  let seq = +document.getElementById("seq").value;
+  let dmodel = +document.getElementById("dmodel").value;
+  let ffn = +document.getElementById("ffn").value;
+  let heads = +document.getElementById("heads").value;
+  let vocab = +document.getElementById("vocab").value;
+  let layers = +document.getElementById("layers").value;
+  let precision = document.getElementById("precision").value;
+
+  let perLayerHTML = "";
+  let totalParams = 0, totalActs = 0;
+
+  for (let l=0; l<layers; l++) {
+    let qkv = 3 * dmodel * dmodel;
+    let wo = dmodel * dmodel;
+    let ffn1 = dmodel * ffn;
+    let ffn2 = ffn * dmodel;
+    let norms = 2 * dmodel;
+
+    let actsX = batch*seq*dmodel;
+    let actsQKV = batch*seq*dmodel*3;
+    let attn = batch*heads*seq*seq;
+    let actsFFN = batch*seq*ffn;
+    let subtotalParams = qkv+wo+ffn1+ffn2+norms;
+    let subtotalActs = actsX+actsQKV+attn+actsFFN;
+
+    totalParams += subtotalParams;
+    totalActs += subtotalActs;
+
+    perLayerHTML += `
+    <details>
+      <summary>Decoder Layer ${l+1}</summary>
+      <table>
+        <tr><th>Component</th><th>Memory</th><th>Formula</th></tr>
+        <tr><td>QKV Proj</td><td>${gb(qkv,precision)}</td><td class="formula">3 × d_model × d_model</td></tr>
+        <tr><td>Output Proj (Wo)</td><td>${gb(wo,precision)}</td><td class="formula">d_model × d_model</td></tr>
+        <tr><td>FFN Layer 1</td><td>${gb(ffn1,precision)}</td><td class="formula">d_model × ffn_dim</td></tr>
+        <tr><td>FFN Layer 2</td><td>${gb(ffn2,precision)}</td><td class="formula">ffn_dim × d_model</td></tr>
+        <tr><td>LayerNorms</td><td>${gb(norms,precision)}</td><td class="formula">2 × d_model</td></tr>
+        <tr class="highlight"><td>Subtotal Params</td><td>${gb(subtotalParams,precision)}</td><td></td></tr>
+        <tr><td>Activations X</td><td>${gb(actsX,precision)}</td><td class="formula">batch × seq × d_model</td></tr>
+        <tr><td>Q,K,V</td><td>${gb(actsQKV,precision)}</td><td class="formula">batch × seq × d_model × 3</td></tr>
+        <tr><td>Attention Weights</td><td>${gb(attn,precision)}</td><td class="formula">batch × heads × seq × seq</td></tr>
+        <tr><td>FFN Activations</td><td>${gb(actsFFN,precision)}</td><td class="formula">batch × seq × ffn_dim</td></tr>
+        <tr class="highlight"><td>Subtotal Activations</td><td>${gb(subtotalActs,precision)}</td><td></td></tr>
+      </table>
+    </details>`;
+  }
+  document.getElementById("layerTables").innerHTML = perLayerHTML;
+
+  let emb = vocab*dmodel;
+  let lmhead = dmodel*vocab;
+  let globalParams = emb+lmhead+dmodel;
+  document.getElementById("globalTable").innerHTML = `
+    <table>
+      <tr><th>Component</th><th>Memory</th><th>Formula</th></tr>
+      <tr><td>Embedding</td><td>${gb(emb,precision)}</td><td class="formula">vocab × d_model</td></tr>
+      <tr><td>Final Norm</td><td>${gb(dmodel,precision)}</td><td class="formula">d_model</td></tr>
+      <tr><td>LM Head</td><td>${gb(lmhead,precision)}</td><td class="formula">d_model × vocab</td></tr>
+      <tr class="highlight"><td>Total Global Params</td><td>${gb(globalParams,precision)}</td><td></td></tr>
+    </table>`;
+
+  let optimizerMem = 2 * (totalParams+globalParams);
+  document.getElementById("optimTable").innerHTML = `
+    <table>
+      <tr><th>Component</th><th>Memory</th><th>Formula</th></tr>
+      <tr><td>AdamW States</td><td>${gb(optimizerMem,precision)}</td><td class="formula">2 × Parameters</td></tr>
+    </table>`;
+
+  let totalMem = totalParams+globalParams+totalActs+optimizerMem;
+  document.getElementById("summaryTable").innerHTML = `
+    <table>
+      <tr><th>Category</th><th>Memory</th></tr>
+      <tr><td>Total Parameters</td><td>${gb(totalParams+globalParams,precision)}</td></tr>
+      <tr><td>Total Activations</td><td>${gb(totalActs,precision)}</td></tr>
+      <tr><td>Optimizer States</td><td>${gb(optimizerMem,precision)}</td></tr>
+      <tr class="highlight"><td>Grand Total</td><td>${gb(totalMem,precision)}</td></tr>
+    </table>`;
+}
+calculate();
+</script>
+</body>
+</html>
