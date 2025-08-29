@@ -1,183 +1,528 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>LLM Memory Estimator 📊</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8" />
+<title>LLM Memory & GPU Planner — Student View</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  body {
-    font-family: 'Georgia', serif;
-    background: #fdfdfc;
-    margin: 0; padding: 0;
-    color: #222;
+  :root{
+    --bg:#f7f7fb; --fg:#1f2937; --card:#ffffff; --muted:#6b7280; --brand:#3b82f6; --ok:#16a34a; --warn:#f59e0b; --bad:#ef4444;
+    --border:#e5e7eb;
   }
-  header {
-    background: #fff;
-    border-bottom: 2px solid #ddd;
-    padding: 12px 20px;
+  *{ box-sizing: border-box; }
+  body{ margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial; }
+  header{ background:#fff; border-bottom:1px solid var(--border); padding:14px 20px; position:sticky; top:0; z-index:5;}
+  header h1{ margin:0; font-size:18px; font-weight:700; letter-spacing:.2px; }
+  .wrap{ display:grid; grid-template-columns: 320px 1fr; gap:16px; max-width:1400px; margin:20px auto; padding:0 16px; }
+  .panel{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; }
+  .panel h2{ margin:0 0 10px; font-size:15px; font-weight:700; }
+  .muted{ color:var(--muted); }
+  .inputs label{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin:8px 0; }
+  .inputs input[type="number"], .inputs select{
+    width:140px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:#fff;
   }
-  header h1 {
-    margin: 0; font-size: 22px; font-weight: 700;
-    color: #2c3e50;
-  }
-  .container {
-    max-width: 1200px; margin: 20px auto; padding: 0 20px;
-  }
-  .inputs {
-    background: #fff;
-    border: 1px solid #ccc; border-radius: 10px;
-    padding: 16px; margin-bottom: 20px;
-  }
-  .inputs label { font-weight: 600; margin-right: 8px; }
-  .inputs input { width: 80px; margin-right: 15px; padding: 5px; }
-  .inputs select { margin-right: 15px; }
-  .inputs button {
-    background: #3b82f6; color: #fff; border: none;
-    padding: 8px 16px; border-radius: 6px; cursor: pointer;
-  }
-  .inputs button:hover { background: #2563eb; }
-
-  details { margin: 10px 0; }
-  summary { cursor: pointer; font-weight: 700; padding: 6px; background: #f3f4f6; border-radius: 6px; }
-  summary:hover { background: #e5e7eb; }
-
-  table {
-    border-collapse: collapse; width: 100%; margin-top: 8px;
-    background: #fff; border-radius: 8px; overflow: hidden;
-  }
-  th, td {
-    border: 1px solid #ddd; padding: 8px; font-size: 14px;
-    text-align: left; vertical-align: top;
-  }
-  th { background: #f9fafb; }
-  td.formula { color: #555; font-size: 12px; font-style: italic; }
-
-  .highlight { background: #fef3c7; font-weight: 600; }
-  .section-title { font-size: 18px; margin-top: 30px; color: #2c3e50; border-bottom: 2px solid #ccc; padding-bottom: 4px; }
+  .inputs .row2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  .inputs .row3{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
+  .inputs .checkbox{ display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .btn{ display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; border:1px solid var(--border);
+    background:var(--brand); color:#fff; cursor:pointer; font-weight:600; }
+  .btn.secondary{ background:#fff; color:var(--fg); }
+  .grid{ display:grid; grid-template-columns: repeat(2, 1fr); gap:16px; }
+  .full{ grid-column:1 / -1; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; background:#fff; }
+  th, td{ text-align:left; padding:8px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th{ background:#fafafc; font-weight:700; }
+  .highlight{ background:#fffbeb; font-weight:700; }
+  .footer-note{ font-size:12px; color:var(--muted); margin-top:8px; }
+  .small{ font-size:12px; color:var(--muted); }
+  .side h3{ margin:14px 0 6px; font-size:13px; font-weight:700; }
+  .side p{ margin:6px 0; }
+  .hr{ height:1px; background:var(--border); margin:10px 0; }
 </style>
 </head>
 <body>
 <header>
-  <h1>LLM Memory Estimator 📊</h1>
+  <h1>LLM Memory & GPU Planner — Training + Inference (Student View)</h1>
 </header>
-<div class="container">
-  <div class="inputs">
-    <label>Batch Size: <input id="batch" type="number" value="2"></label>
-    <label>Seq Len: <input id="seq" type="number" value="128"></label>
-    <label>d_model: <input id="dmodel" type="number" value="256"></label>
-    <label>FFN dim: <input id="ffn" type="number" value="1024"></label>
-    <label>Heads: <input id="heads" type="number" value="8"></label>
-    <label>Vocab: <input id="vocab" type="number" value="51200"></label>
-    <label>Layers: <input id="layers" type="number" value="12"></label>
-    <label>Precision:
-      <select id="precision">
-        <option value="32">FP32</option>
-        <option value="16">FP16</option>
-        <option value="amp">AMP (Mixed)</option>
-      </select>
-    </label>
-    <button onclick="calculate()">📊 Calculate Now</button>
-  </div>
 
-  <h2 class="section-title">Per-Decoder Layer Breakdown</h2>
-  <div id="layerTables"></div>
+<div class="wrap">
+  <!-- LEFT: Quick explainer -->
+  <aside class="panel side">
+    <h2>Quick Guide</h2>
+    <div class="hr"></div>
+    <h3>Modes</h3>
+    <p><b>Training:</b> Weights + <u>Gradients</u> + <u>Optimizer</u> (+ optional EMA) + Activations.</p>
+    <p><b>Inference:</b> Weights + <u>KV Cache</u> (grows with tokens × layers).</p>
 
-  <h2 class="section-title">Global Components</h2>
-  <div id="globalTable"></div>
+    <h3>Layer View</h3>
+    <p>Right panel shows a <b>single representative decoder layer</b> with formulas and bytes.</p>
 
-  <h2 class="section-title">Optimizer States (AdamW)</h2>
-  <div id="optimTable"></div>
+    <h3>Useful Toggles</h3>
+    <p><b>Checkpointing:</b> recompute to save activation memory.</p>
+    <p><b>FlashAttention:</b> avoids storing L×L attention matrices.</p>
+  </aside>
 
-  <h2 class="section-title">Total Memory Summary</h2>
-  <div id="summaryTable"></div>
+  <!-- RIGHT: Inputs + Results -->
+  <main class="grid">
+
+    <!-- 1) Mode & Shape -->
+    <section class="panel inputs">
+      <h2>1) Mode & Model Shape</h2>
+      <div class="row3">
+        <label>Mode
+          <select id="mode">
+            <option value="train" selected>Training</option>
+            <option value="infer">Inference</option>
+          </select>
+        </label>
+        <label>Layers <input id="layers" type="number" value="12" min="1" /></label>
+        <label>d_model <input id="dmodel" type="number" value="2048" min="64" step="64" /></label>
+      </div>
+      <div class="row3">
+        <label>FFN dim <input id="ffn" type="number" value="8192" min="64" step="64" /></label>
+        <label>Heads <input id="heads" type="number" value="16" min="1" /></label>
+        <label>Vocab <input id="vocab" type="number" value="50257" min="1000" step="1" /></label>
+      </div>
+      <div class="row3">
+        <label>Weights Precision
+          <select id="wprec">
+            <option value="fp32">FP32</option>
+            <option value="bf16" selected>BF16</option>
+            <option value="fp16">FP16</option>
+          </select>
+        </label>
+        <label>Grad Precision
+          <select id="gprec">
+            <option value="fp32">FP32</option>
+            <option value="bf16" selected>BF16</option>
+            <option value="fp16">FP16</option>
+          </select>
+        </label>
+        <label>Act Precision
+          <select id="aprec">
+            <option value="bf16" selected>BF16</option>
+            <option value="fp16">FP16</option>
+          </select>
+        </label>
+      </div>
+      <div class="checkbox"><input type="checkbox" id="tie" /> <label for="tie">Tie embedding ⇄ LM head</label></div>
+      <div class="checkbox"><input type="checkbox" id="flash" /> <label for="flash">Flash Attention (no L×L storage)</label></div>
+    </section>
+
+    <!-- 2) Workload -->
+    <section class="panel inputs">
+      <h2>2) Workload</h2>
+      <div id="trainBlock">
+        <div class="row3">
+          <label>Global Batch <input id="gbatch" type="number" value="512" min="1" /></label>
+          <label>Seq Len <input id="seq" type="number" value="2048" min="8" step="8" /></label>
+          <label>Grad Accum <input id="ga" type="number" value="8" min="1" /></label>
+        </div>
+        <div class="row3">
+          <label>Optimizer
+            <select id="opt">
+              <option value="adamw" selected>AdamW (≈8 B/param)</option>
+              <option value="lion">Lion (≈4 B/param)</option>
+              <option value="sgd_mom">SGD+mom (≈4 B/param)</option>
+              <option value="adafactor">Adafactor (≈2–4 B/param)</option>
+            </select>
+          </label>
+          <label>Opt bytes/param <input id="optbpp" type="number" value="8" min="0" step="0.5" /></label>
+          <label>EMA copy <input id="ema" type="checkbox" /></label>
+        </div>
+        <div class="row3">
+          <label>Checkpointing
+            <select id="ckpt">
+              <option value="off" selected>Off</option>
+              <option value="med">On (0.5× acts)</option>
+              <option value="high">Aggressive (0.3× acts)</option>
+            </select>
+          </label>
+          <label>Seq Parallel shards <input id="seqpar" type="number" value="1" min="1" /></label>
+          <label class="muted"> </label>
+        </div>
+      </div>
+
+      <div id="inferBlock" style="display:none">
+        <div class="row3">
+          <label>Batch (concurrent) <input id="ibatch" type="number" value="8" min="1" /></label>
+          <label>Prompt tokens <input id="iprompt" type="number" value="512" min="1" /></label>
+          <label>Generate tokens <input id="igen" type="number" value="512" min="1" /></label>
+        </div>
+        <div class="row3">
+          <label>KV Precision
+            <select id="kvprec">
+              <option value="bf16" selected>BF16</option>
+              <option value="fp16">FP16</option>
+            </select>
+          </label>
+          <label>KV sharded by TP <input id="kvshard" type="checkbox" checked /></label>
+          <label class="muted">Weights quant via Weights Precision</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3) Parallelism -->
+    <section class="panel inputs">
+      <h2>3) Parallelism</h2>
+      <div class="row3">
+        <label>DP <input id="dp" type="number" value="1" min="1" /></label>
+        <label>TP <input id="tp" type="number" value="1" min="1" /></label>
+        <label>PP <input id="pp" type="number" value="1" min="1" /></label>
+      </div>
+      <div class="row3">
+        <label>ZeRO
+          <select id="zero">
+            <option value="0" selected>0 (none)</option>
+            <option value="1">1 (opt only)</option>
+            <option value="2">2 (opt+grads)</option>
+            <option value="3">3 (params+grads+opt)</option>
+          </select>
+        </label>
+        <label>Overhead margin <input id="overhead" type="number" value="0.15" step="0.01" min="0"/></label>
+        <label class="muted"> </label>
+      </div>
+    </section>
+
+    <!-- 4) Hardware -->
+    <section class="panel inputs">
+      <h2>4) Hardware</h2>
+      <div class="row3">
+        <label>GPU Model
+          <select id="gpuModel">
+            <option value="A100-80:80" selected>A100 80GB</option>
+            <option value="A100-40:40">A100 40GB</option>
+            <option value="H100-80:80">H100 80GB</option>
+            <option value="H100-94:94">H100 94GB</option>
+            <option value="L40S-48:48">L40S 48GB</option>
+            <option value="4090-24:24">RTX 4090 24GB</option>
+            <option value="T4-16:16">T4 16GB</option>
+          </select>
+        </label>
+        <label>Usable % VRAM <input id="usable" type="number" value="0.9" step="0.05" min="0.5" max="0.98" /></label>
+        <label class="muted"> </label>
+      </div>
+      <div class="row2">
+        <button class="btn" id="calcBtn">📊 Calculate</button>
+        <button class="btn secondary" id="findBtn">🔎 Find Min GPUs</button>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="panel full" id="results">
+      <h2>Results</h2>
+      <div class="grid">
+        <div class="panel">
+          <h2>Totals</h2>
+          <table id="totalsTbl"></table>
+          <div class="footer-note" id="totalsNote"></div>
+        </div>
+        <div class="panel">
+          <h2>Per-GPU Memory</h2>
+          <table id="perGpuTbl"></table>
+          <div class="footer-note" id="fitNote"></div>
+        </div>
+      </div>
+
+      <div class="panel full" style="margin-top:12px;">
+        <h2>Representative Decoder Layer (one layer)</h2>
+        <table id="oneLayerTbl"></table>
+        <div class="small" id="oneLayerNote"></div>
+      </div>
+    </section>
+
+  </main>
 </div>
 
 <script>
-function gb(x, precision) {
-  let bytes = x * (precision === "32" ? 4 : 2); // FP32=4B, FP16=2B
-  return (bytes / (1024**3)).toFixed(4) + " GB";
-}
-function calculate() {
-  let batch = +document.getElementById("batch").value;
-  let seq = +document.getElementById("seq").value;
-  let dmodel = +document.getElementById("dmodel").value;
-  let ffn = +document.getElementById("ffn").value;
-  let heads = +document.getElementById("heads").value;
-  let vocab = +document.getElementById("vocab").value;
-  let layers = +document.getElementById("layers").value;
-  let precision = document.getElementById("precision").value;
+/* ----------------- helpers ----------------- */
+const BYTES = { fp32:4, bf16:2, fp16:2 };
+const el = id => document.getElementById(id);
+const toGB = b => (b/(1024**3));
+const gb = b => toGB(b).toFixed(4) + " GB";
+function clamp(n, lo, hi){ return Math.max(lo, Math.min(hi, n)); }
+const uniq = arr => arr.filter((v,i,a)=>a.indexOf(v)===i);
 
-  let perLayerHTML = "";
-  let totalParams = 0, totalActs = 0;
+/* ----------------- mode wiring ----------------- */
+const modeEl = el('mode');
+const trainBlock = el('trainBlock');
+const inferBlock = el('inferBlock');
+const wprecEl = el('wprec'), gprecEl = el('gprec'), aprecEl = el('aprec');
+const optEl = el('opt'), optbppEl = el('optbpp');
 
-  for (let l=0; l<layers; l++) {
-    let qkv = 3 * dmodel * dmodel;
-    let wo = dmodel * dmodel;
-    let ffn1 = dmodel * ffn;
-    let ffn2 = ffn * dmodel;
-    let norms = 2 * dmodel;
+modeEl.addEventListener('change', syncMode);
+optEl.addEventListener('change', syncOpt);
+function syncMode(){ const m = modeEl.value; trainBlock.style.display = (m==='train') ? '' : 'none'; inferBlock.style.display = (m==='infer') ? '' : 'none'; }
+function syncOpt(){ const m = optEl.value; optbppEl.value = (m==='adamw') ? 8 : (m==='lion' || m==='sgd_mom') ? 4 : 4; }
 
-    let actsX = batch*seq*dmodel;
-    let actsQKV = batch*seq*dmodel*3;
-    let attn = batch*heads*seq*seq;
-    let actsFFN = batch*seq*ffn;
-    let subtotalParams = qkv+wo+ffn1+ffn2+norms;
-    let subtotalActs = actsX+actsQKV+attn+actsFFN;
+/* ----------------- main calc ----------------- */
+function calcAll(findMin=false){
+  const mode = el('mode').value;
+  const L = +el('layers').value;
+  const D = +el('dmodel').value;
+  const F = +el('ffn').value;
+  const H = +el('heads').value;
+  const V = +el('vocab').value;
+  const tie = el('tie').checked;
+  const flash = el('flash').checked;
 
-    totalParams += subtotalParams;
-    totalActs += subtotalActs;
+  const W_B = BYTES[wprecEl.value];
+  const G_B = BYTES[gprecEl.value];
+  const A_B = BYTES[aprecEl.value];
 
-    perLayerHTML += `
-    <details>
-      <summary>Decoder Layer ${l+1}</summary>
-      <table>
-        <tr><th>Component</th><th>Memory</th><th>Formula</th></tr>
-        <tr><td>QKV Proj</td><td>${gb(qkv,precision)}</td><td class="formula">3 × d_model × d_model</td></tr>
-        <tr><td>Output Proj (Wo)</td><td>${gb(wo,precision)}</td><td class="formula">d_model × d_model</td></tr>
-        <tr><td>FFN Layer 1</td><td>${gb(ffn1,precision)}</td><td class="formula">d_model × ffn_dim</td></tr>
-        <tr><td>FFN Layer 2</td><td>${gb(ffn2,precision)}</td><td class="formula">ffn_dim × d_model</td></tr>
-        <tr><td>LayerNorms</td><td>${gb(norms,precision)}</td><td class="formula">2 × d_model</td></tr>
-        <tr class="highlight"><td>Subtotal Params</td><td>${gb(subtotalParams,precision)}</td><td></td></tr>
-        <tr><td>Activations X</td><td>${gb(actsX,precision)}</td><td class="formula">batch × seq × d_model</td></tr>
-        <tr><td>Q,K,V</td><td>${gb(actsQKV,precision)}</td><td class="formula">batch × seq × d_model × 3</td></tr>
-        <tr><td>Attention Weights</td><td>${gb(attn,precision)}</td><td class="formula">batch × heads × seq × seq</td></tr>
-        <tr><td>FFN Activations</td><td>${gb(actsFFN,precision)}</td><td class="formula">batch × seq × ffn_dim</td></tr>
-        <tr class="highlight"><td>Subtotal Activations</td><td>${gb(subtotalActs,precision)}</td><td></td></tr>
-      </table>
-    </details>`;
+  // training workload
+  const GBATCH = +el('gbatch').value;
+  const SEQ = +el('seq').value;
+  const GA = +el('ga').value;
+  const CKPT = el('ckpt').value;
+  const CKPT_FACTOR = (CKPT==='off') ? 1.0 : (CKPT==='med' ? 0.5 : 0.3);
+  const OPT_BPP = Math.max(0, +el('optbpp').value);
+  const EMA = el('ema').checked;
+
+  // inference workload
+  const iB = +el('ibatch')?.value || 0;
+  const iPrompt = +el('iprompt')?.value || 0;
+  const iGen = +el('igen')?.value || 0;
+  const KV_B = BYTES[(el('kvprec')?.value)||'bf16'];
+  const KV_SHARD_TP = el('kvshard')?.checked ?? true;
+
+  // parallelism
+  let DP = Math.max(1, +el('dp').value);
+  let TP = Math.max(1, +el('tp').value);
+  let PP = Math.max(1, +el('pp').value);
+  const ZERO = +el('zero').value;
+  const OVER = Math.max(0, +el('overhead').value);
+  const SEQPAR = +el('seqpar')?.value || 1;
+
+  // hardware
+  const [gpuName, capStr] = el('gpuModel').value.split(':');
+  const capGB = +capStr;
+  const usableGB = capGB * clamp(+el('usable').value, 0.5, 0.98);
+  const usableBytes = usableGB * 1024**3;
+
+  // per-layer params (elements)
+  const qkv  = 3 * D * D;
+  const wo   = D * D;
+  const f1   = D * F;
+  const f2   = F * D;
+  const norms= 2 * D;
+  const perLayerParamsElems = qkv + wo + f1 + f2 + norms;
+
+  // global params (elements)
+  const emb = V * D;
+  const lm  = tie ? 0 : D * V;
+  const fn  = D;
+  const globalParamsElems = emb + lm + fn;
+
+  // totals (bytes)
+  const PARAM_ELEMS = perLayerParamsElems * L + globalParamsElems;
+  const PARAM_BYTES = PARAM_ELEMS * W_B;
+  const GRAD_BYTES  = (mode==='train') ? (PARAM_ELEMS * G_B) : 0;
+  const OPT_BYTES   = (mode==='train') ? (PARAM_ELEMS * OPT_BPP) : 0;
+  const EMA_BYTES   = (mode==='train' && EMA) ? (PARAM_ELEMS * 4) : 0; // FP32 EMA copy
+
+  // activations / kv totals (bytes)
+  function actsTotalBytes(dp){
+    const micro = Math.max(1, Math.floor(GBATCH / Math.max(1, dp * GA)));
+    const actsX   = micro * SEQ * D;
+    const actsQKV = micro * SEQ * D * 3;
+    const attn    = flash ? 0 : (micro * H * SEQ * SEQ);
+    const actsFFN = micro * SEQ * F;
+    const totalActsElems = (actsX + actsQKV + attn + actsFFN) * L;
+    return (totalActsElems * A_B * CKPT_FACTOR);
   }
-  document.getElementById("layerTables").innerHTML = perLayerHTML;
+  let ACT_BYTES = (mode==='train') ? actsTotalBytes(DP) : 0;
+  const tokens = (iPrompt + iGen);
+  let KV_BYTES = (mode==='infer') ? (iB * tokens * L * 2 * D * KV_B) : 0;
 
-  let emb = vocab*dmodel;
-  let lmhead = dmodel*vocab;
-  let globalParams = emb+lmhead+dmodel;
-  document.getElementById("globalTable").innerHTML = `
-    <table>
+  const RAW_TOTAL = PARAM_BYTES + GRAD_BYTES + OPT_BYTES + EMA_BYTES + (mode==='infer' ? KV_BYTES : ACT_BYTES);
+  const TOTAL_BYTES = RAW_TOTAL * (1 + OVER);
+
+  // Sharding helper
+  function shard(bytes, kind, dp=DP, tp=TP, pp=PP, zero=ZERO){
+    let div = tp * pp;
+    if (mode==='train'){
+      if (zero===3) div *= dp;                 // params+grads+opt sharded across DP
+      else if (zero===2 && (kind==='grad' || kind==='opt')) div *= dp;
+      else if (zero===1 && kind==='opt') div *= dp;
+    }
+    return bytes / div;
+  }
+
+  // Per-GPU current setting
+  const perGpuParams = shard(PARAM_BYTES,'param');
+  const perGpuGrads  = shard(GRAD_BYTES,'grad');
+  const perGpuOpt    = shard(OPT_BYTES,'opt');
+  const perGpuEMA    = shard(EMA_BYTES,'ema');
+  const perGpuActs   = (mode==='train') ? (ACT_BYTES / (PP * Math.max(1, SEQPAR))) : 0; // stage-local
+  const perGpuKV     = (mode==='infer') ? (KV_BYTES / (KV_SHARD_TP ? TP : 1)) : 0;
+  const perGPU = (perGpuParams + perGpuGrads + perGpuOpt + perGpuEMA + perGpuActs + perGpuKV) * (1 + OVER);
+
+  /* ------------ render totals ------------ */
+  const totalsTbl = el('totalsTbl');
+  totalsTbl.innerHTML = `
+    <tr><th>Component</th><th>Memory</th><th>Notes</th></tr>
+    <tr><td>Parameters</td><td>${gb(PARAM_BYTES)}</td><td>${wprecEl.value.toUpperCase()}</td></tr>
+    ${mode==='train'? `<tr><td>Gradients</td><td>${gb(GRAD_BYTES)}</td><td>${gprecEl.value.toUpperCase()}</td></tr>` : ``}
+    ${mode==='train'? `<tr><td>Optimizer</td><td>${gb(OPT_BYTES)}</td><td>${optEl.value} (~${OPT_BPP} B/param)</td></tr>` : ``}
+    ${mode==='train' && EMA ? `<tr><td>EMA</td><td>${gb(EMA_BYTES)}</td><td>FP32 copy</td></tr>` : ``}
+    ${mode==='infer'? `<tr><td>KV Cache (total)</td><td>${gb(KV_BYTES)}</td><td>${(el('kvprec').value).toUpperCase()} ${KV_SHARD_TP?'/ TP-sharded':''}</td></tr>`
+                     : `<tr><td>Activations (total)</td><td>${gb(ACT_BYTES)}</td><td>${aprecEl.value.toUpperCase()} ${flash?'+ FlashAttn':''} ${CKPT!=='off'?'+ ckpt':''}</td></tr>`}
+    <tr class="highlight"><td>Total (+overhead)</td><td>${gb(TOTAL_BYTES)}</td><td>Overhead ${Math.round(OVER*100)}%</td></tr>
+  `;
+  el('totalsNote').innerText =
+    `Embedding${tie?' (tied)':''}: ${gb(emb*W_B)}, LM head: ${gb(lm*W_B)}, FinalNorm: ${gb(fn*W_B)}. `
+    + `Per-layer params: ${gb(perLayerParamsElems*W_B)} × ${L}.`;
+
+  /* ------------ per-GPU panel ------------ */
+  const perGpuTbl = el('perGpuTbl');
+  const fits = perGPU <= usableBytes;
+  perGpuTbl.innerHTML = `
+    <tr><th>Breakdown</th><th>Bytes</th></tr>
+    <tr><td>Params shard</td><td>${gb(perGpuParams)}</td></tr>
+    ${mode==='train'? `<tr><td>Grads shard</td><td>${gb(perGpuGrads)}</td></tr>` : ``}
+    ${mode==='train'? `<tr><td>Optimizer shard</td><td>${gb(perGpuOpt)}</td></tr>` : ``}
+    ${mode==='train' && EMA? `<tr><td>EMA shard</td><td>${gb(perGpuEMA)}</td></tr>` : ``}
+    ${mode==='train'? `<tr><td>Activations (per stage)</td><td>${gb(perGpuActs)}</td></tr>` : `<tr><td>KV (per GPU)</td><td>${gb(perGpuKV)}</td></tr>`}
+    <tr class="highlight"><td><b>Per-GPU total</b></td><td><b>${gb(perGPU)}</b></td></tr>
+    <tr><td>GPU usable (${gpuName})</td><td>${usableGB.toFixed(1)} GB</td></tr>
+    <tr><td>Fits?</td><td>${ fits ? '<span style="color:#16a34a">Yes ✔</span>' : '<span style="color:#ef4444">No ✖</span>' }</td></tr>
+  `;
+  el('fitNote').innerText = `Current: DP=${DP}, TP=${TP}, PP=${PP}, ZeRO=${ZERO}.`;
+
+  /* ------------ one-layer (student) ------------ */
+  const oneLayerTbl = el('oneLayerTbl');
+  const oneLayerNote = el('oneLayerNote');
+  const qkvB = qkv * W_B, woB = wo * W_B, f1B = f1 * W_B, f2B = f2 * W_B, nB = norms * W_B;
+
+  if (mode==='infer'){
+    const kvPerLayerBytes = iB * tokens * 2 * D * KV_B; // model total; per-GPU is /TP if sharded
+    oneLayerTbl.innerHTML = `
       <tr><th>Component</th><th>Memory</th><th>Formula</th></tr>
-      <tr><td>Embedding</td><td>${gb(emb,precision)}</td><td class="formula">vocab × d_model</td></tr>
-      <tr><td>Final Norm</td><td>${gb(dmodel,precision)}</td><td class="formula">d_model</td></tr>
-      <tr><td>LM Head</td><td>${gb(lmhead,precision)}</td><td class="formula">d_model × vocab</td></tr>
-      <tr class="highlight"><td>Total Global Params</td><td>${gb(globalParams,precision)}</td><td></td></tr>
-    </table>`;
-
-  let optimizerMem = 2 * (totalParams+globalParams);
-  document.getElementById("optimTable").innerHTML = `
-    <table>
+      <tr><td>QKV Proj</td><td>${gb(qkvB)}</td><td>3 × d_model × d_model</td></tr>
+      <tr><td>Output Proj (Wo)</td><td>${gb(woB)}</td><td>d_model × d_model</td></tr>
+      <tr><td>FFN Layer 1</td><td>${gb(f1B)}</td><td>d_model × ffn_dim</td></tr>
+      <tr><td>FFN Layer 2</td><td>${gb(f2B)}</td><td>ffn_dim × d_model</td></tr>
+      <tr><td>LayerNorms</td><td>${gb(nB)}</td><td>2 × d_model</td></tr>
+      <tr class="highlight"><td>Subtotal Params</td><td>${gb(qkvB+woB+f1B+f2B+nB)}</td><td></td></tr>
+      <tr><td>KV Cache (per layer)</td><td>${gb(kvPerLayerBytes)}</td><td>batch × tokens × 2 × d_model</td></tr>
+    `;
+    oneLayerNote.innerText = `KV per GPU = ${KV_SHARD_TP ? 'per-layer KV / TP' : 'per-layer KV (not sharded)'}; tokens = prompt+generate.`;
+  } else {
+    const micro = Math.max(1, Math.floor(GBATCH / Math.max(1, DP*GA)));
+    const ax  = micro * SEQ * D;
+    const aqk = micro * SEQ * D * 3;
+    const att = flash ? 0 : (micro * H * SEQ * SEQ);
+    const aff = micro * SEQ * F;
+    const actsPerLayerBytes = (ax + aqk + att + aff) * A_B * CKPT_FACTOR / Math.max(1, SEQPAR);
+    oneLayerTbl.innerHTML = `
       <tr><th>Component</th><th>Memory</th><th>Formula</th></tr>
-      <tr><td>AdamW States</td><td>${gb(optimizerMem,precision)}</td><td class="formula">2 × Parameters</td></tr>
-    </table>`;
+      <tr><td>QKV Proj</td><td>${gb(qkvB)}</td><td>3 × d_model × d_model</td></tr>
+      <tr><td>Output Proj (Wo)</td><td>${gb(woB)}</td><td>d_model × d_model</td></tr>
+      <tr><td>FFN Layer 1</td><td>${gb(f1B)}</td><td>d_model × ffn_dim</td></tr>
+      <tr><td>FFN Layer 2</td><td>${gb(f2B)}</td><td>ffn_dim × d_model</td></tr>
+      <tr><td>LayerNorms</td><td>${gb(nB)}</td><td>2 × d_model</td></tr>
+      <tr class="highlight"><td>Subtotal Params</td><td>${gb(qkvB+woB+f1B+f2B+nB)}</td><td></td></tr>
+      <tr><td>Activations X</td><td>${gb(ax*A_B*CKPT_FACTOR/Math.max(1, SEQPAR))}</td><td>micro × seq × d_model ${SEQPAR>1?'/ seq-par':''}</td></tr>
+      <tr><td>Q,K,V</td><td>${gb(aqk*A_B*CKPT_FACTOR/Math.max(1, SEQPAR))}</td><td>micro × seq × d_model × 3 ${SEQPAR>1?'/ seq-par':''}</td></tr>
+      <tr><td>Attention Weights</td><td>${gb(att*A_B*CKPT_FACTOR/Math.max(1, SEQPAR))}</td><td>${flash?'(FlashAttn: no L×L storage)':'micro × heads × seq × seq'} ${SEQPAR>1?'/ seq-par':''}</td></tr>
+      <tr><td>FFN Activations</td><td>${gb(aff*A_B*CKPT_FACTOR/Math.max(1, SEQPAR))}</td><td>micro × seq × ffn_dim ${SEQPAR>1?'/ seq-par':''}</td></tr>
+      <tr class="highlight"><td>Subtotal Activations</td><td>${gb(actsPerLayerBytes)}</td><td>${aprecEl.value.toUpperCase()} ${CKPT!=='off'?'+ ckpt':''}</td></tr>
+    `;
+    oneLayerNote.innerText = `micro = floor(global_batch / (DP × grad_accum)) = ${micro}. `
+      + `${CKPT!=='off'?'Checkpointing reduces activation memory. ':''}${flash?'FlashAttention avoids L×L storage. ':''}`;
+  }
 
-  let totalMem = totalParams+globalParams+totalActs+optimizerMem;
-  document.getElementById("summaryTable").innerHTML = `
-    <table>
-      <tr><th>Category</th><th>Memory</th></tr>
-      <tr><td>Total Parameters</td><td>${gb(totalParams+globalParams,precision)}</td></tr>
-      <tr><td>Total Activations</td><td>${gb(totalActs,precision)}</td></tr>
-      <tr><td>Optimizer States</td><td>${gb(optimizerMem,precision)}</td></tr>
-      <tr class="highlight"><td>Grand Total</td><td>${gb(totalMem,precision)}</td></tr>
-    </table>`;
+  /* ------------ find min GPUs solver ------------ */
+  if (findMin){
+    if (mode==='train'){
+      // recompute activations per-DP inside solver
+      function actsBytesForDP(dp){ return actsTotalBytes(dp); }
+      function perGpuTrain(dp, tp, pp, zero){
+        const baseDiv = tp * pp;
+        const pB = (PARAM_BYTES / baseDiv) / (zero===3 ? dp : 1);
+        const gB = (GRAD_BYTES  / baseDiv) / (zero>=2  ? dp : 1);
+        const oB = (OPT_BYTES   / baseDiv) / (zero>=1  ? dp : 1);
+        const eB = (EMA_BYTES   / baseDiv) / (zero===3 ? dp : 1);
+        const aB = actsBytesForDP(dp) / (pp * Math.max(1, SEQPAR)); // stage-local
+        return (pB + gB + oB + eB + aB) * (1 + OVER);
+      }
+      const zeroCands = uniq([ZERO, 3, 2, 1, 0]);
+      const tpCands   = uniq([TP, 2*TP, 4*TP, 8*TP].filter(x=>x>=1 && x<=64));
+      const ppCands   = uniq([PP, 2*PP, 4*PP].filter(x=>x>=1 && x<=32));
+      let best = null;
+
+      for (const z of zeroCands){
+        for (const t of tpCands){
+          for (const p of ppCands){
+            // lower bound guard with micro=1
+            const actsX1   = 1 * SEQ * D;
+            const actsQKV1 = 1 * SEQ * D * 3;
+            const attn1    = flash ? 0 : (1 * H * SEQ * SEQ);
+            const aff1     = 1 * SEQ * F;
+            const aMin = ((actsX1+actsQKV1+attn1+aff1)*L*A_B*CKPT_FACTOR)/(p*Math.max(1,SEQPAR));
+            const baseDiv = t*p;
+            const pInf = (PARAM_BYTES/baseDiv)/(z===3?1e12:1);
+            const gInf = (GRAD_BYTES /baseDiv)/(z>=2 ?1e12:1);
+            const oInf = (OPT_BYTES  /baseDiv)/(z>=1 ?1e12:1);
+            const eInf = (EMA_BYTES  /baseDiv)/(z===3?1e12:1);
+            const lowerBound = (pInf+gInf+oInf+eInf+aMin)*(1+OVER);
+            if (lowerBound>usableBytes) continue;
+
+            let dp=1;
+            while (dp<=4096){
+              const pg = perGpuTrain(dp,t,p,z);
+              if (pg<=usableBytes){
+                const total = dp*t*p;
+                const cand={dp,tp:t,pp:p,zero:z,perGpu:pg,total};
+                if (!best || total<best.total) best=cand;
+                break;
+              }
+              dp++;
+            }
+          }
+        }
+      }
+      if (best){
+        el('fitNote').innerHTML =
+          `Suggested: DP=${best.dp}, TP=${best.tp}, PP=${best.pp}, ZeRO=${best.zero} → Total GPUs=${best.total}. `
+          + `Per-GPU=${toGB(best.perGpu).toFixed(2)} GB (<= ${usableGB.toFixed(1)} GB).`;
+      } else {
+        el('fitNote').innerHTML =
+          `<span style="color:#ef4444">No DP/TP/PP/ZeRO combo fits ${gpuName} (${usableGB.toFixed(1)} GB usable).</span> `
+          + `Try ZeRO-3, increase TP/PP, set Checkpointing to High, enable FlashAttention, use lighter optimizer, reduce batch/seq, or pick larger-VRAM GPUs.`;
+      }
+    } else {
+      // inference: try TP up
+      const tpCands = uniq([TP,2*TP,4*TP,8*TP,16*TP,32*TP].filter(x=>x>=1 && x<=128));
+      function perGpuInfer(tp,pp){
+        const pB = PARAM_BYTES/(tp*pp);
+        const kvB = KV_SHARD_TP ? (KV_BYTES/tp) : KV_BYTES;
+        return (pB+kvB)*(1+OVER);
+      }
+      let best=null;
+      for (const t of tpCands){
+        const pg = perGpuInfer(t,PP);
+        if (pg<=usableBytes){ best={tp:t,perGpu:pg,total:DP*t*PP}; break; }
+      }
+      if (best){
+        el('fitNote').innerHTML =
+          `Suggested (inference): TP=${best.tp}, PP=${PP} → Total GPUs=${best.total}. `
+          + `Per-GPU=${toGB(best.perGpu).toFixed(2)} GB (<= ${usableGB.toFixed(1)} GB).`;
+      } else {
+        el('fitNote').innerHTML =
+          `<span style="color:#ef4444">No TP value fits ${gpuName} at current settings.</span> `
+          + `Try KV sharding, increase TP, weight quant (INT8/INT4), reduce batch/prompt/response, or larger-VRAM GPUs.`;
+      }
+    }
+  }
 }
-calculate();
+
+/* buttons + first render */
+document.getElementById('calcBtn').addEventListener('click', ()=>calcAll(false));
+document.getElementById('findBtn').addEventListener('click', ()=>calcAll(true));
+syncMode(); syncOpt();
+calcAll(false); // auto-populate on load
 </script>
 </body>
 </html>
