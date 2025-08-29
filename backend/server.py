@@ -34,7 +34,23 @@ app.mount("/LearnLLMLive", StaticFiles(directory=FRONTEND_DIR, html=True), name=
 # ---------- Config ----------
 LOG_DIR = os.environ.get("LOG_DIR", "LLM/log/current")  # where trainer writes logs
 CFG_PATH = os.environ.get("LOG_DIR", "LLM/log/current/config")  # where trainer writes logs
+VIEWS_FILE = "views.json"
 
+# Load existing count if file exists
+if os.path.exists(VIEWS_FILE):
+    with open(VIEWS_FILE, "r") as f:
+        data = json.load(f)
+        total_views = data.get("total_views", 0)
+else:
+    total_views = 0
+
+@app.get("/views")
+def get_views():
+    global total_views
+    total_views += 1
+    with open(VIEWS_FILE, "w") as f:
+        json.dump({"total_views": total_views}, f)
+    return {"total_views": total_views}
 # ---------- Training state (simple mock) ----------
 training_active = False
 current_step = 0
