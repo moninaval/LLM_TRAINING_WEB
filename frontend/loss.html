@@ -2,229 +2,171 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>🎓 Loss & Gradient Flow Explorer</title>
+  <title>loss.backward() — Gradient Flow Explorer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
-      --bg:#0b1220; --card:#0f172a; --card2:#111827; --muted:#9ca3af;
-      --text:#e5e7eb; --accent:#60a5fa; --accent2:#22d3ee; --border:#1f2937;
-      --chip:#1e293b; --chipActive:#3b82f6;
+      --bg:#ffffff; --paper:#fafafa; --ink:#0b1220; --muted:#5b657a;
+      --rule:#e5e7eb; --accent:#2563eb; --accent2:#0891b2;
     }
     *{box-sizing:border-box}
-    body{margin:0;background:linear-gradient(180deg,#0b1220, #0b1220 60%, #0c1324);
-         color:var(--text); font-family: ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
-    .container{max-width:1700px;margin:0 auto;padding:18px}
-    .title{
-      text-align:center; padding:14px 10px; border-radius:14px;
-      background:linear-gradient(90deg, rgba(96,165,250,.12), rgba(34,211,238,.12));
-      border:1px solid rgba(96,165,250,.25); margin-bottom:16px;
-    }
-    .title h1{margin:0; font-size:24px; letter-spacing:.2px}
-    .progress{height:4px; background:#101827; border-radius:999px; overflow:hidden; margin:12px auto 16px; max-width:520px;}
+    body{margin:0;background:var(--bg); color:var(--ink);
+         font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";}
+    .container{max-width:1600px;margin:0 auto;padding:20px}
+    .title{border:1px solid var(--rule); border-radius:12px; background:var(--paper);
+           padding:14px 16px; text-align:center; margin-bottom:16px}
+    .title h1{margin:0; font-size:22px; letter-spacing:.2px}
+    .progress{height:3px; background:#f0f2f6; border-radius:999px; overflow:hidden; margin:10px auto 16px; max-width:560px;}
     .progress::after{content:""; display:block; height:100%; width:40%;
       background:linear-gradient(90deg, var(--accent), var(--accent2));
-      animation:load 1.05s linear infinite; border-radius:999px;}
+      animation:load 1.05s linear infinite; border-radius:999px}
     @keyframes load{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 
-    .layout{display:grid; grid-template-columns: 290px 1fr 320px; gap:16px}
+    /* Two columns: left = gradient tree, right = main flow */
+    .layout{display:grid; grid-template-columns: 1.1fr 1fr; gap:16px}
 
-    .card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px}
+    .card{background:#fff; border:1px solid var(--rule); border-radius:12px; padding:14px}
     .card h2{margin:0 0 10px 0; font-size:18px; letter-spacing:.2px}
-    .card h3{margin:8px 0 8px 0; font-size:16px}
-    .card p{color:var(--muted); margin:6px 0 10px; line-height:1.4; font-size:13px}
-    .smallnote{font-size:12px; color:#9aa3b0; margin:6px 0 10px}
+    .smallnote{font-size:12px; color:var(--muted); margin:6px 0 10px}
+
+    /* Tabs */
+    .tabs{display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 10px}
+    .tab{padding:6px 10px; border-radius:10px; background:#eef2ff; border:1px solid #dbe3ff; color:#173785; cursor:pointer; font-size:13px}
+    .tab.active{background:#2563eb; color:#fff; border-color:#2563eb}
+    /* ensure clicks always register */
+    .tabs, .tab { pointer-events:auto; }
+
+    /* Flow sections */
     .flow-card{border-left:3px solid var(--accent); padding-left:12px; margin:14px 0 16px}
-    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
-    .chip{background:var(--chip); color:#cbd5e1; border:1px solid var(--border);
-          padding:6px 10px; border-radius:999px; font-size:12px}
-    .chip.ghost{opacity:.7}
-    .pill{padding:6px 10px; border-radius:999px; background:rgba(96,165,250,.16); border:1px solid rgba(96,165,250,.25); color:#cfe3ff; font-size:12px}
-    .btn{padding:8px 12px; border-radius:10px; background:linear-gradient(90deg, var(--accent), var(--accent2)); color:#04101d; font-weight:600; border:none; cursor:pointer}
-    .btn:active{transform:translateY(1px)}
-
-    /* Tables */
-    table{width:100%; border-collapse:collapse; margin-top:8px}
-    th,td{border:1px solid var(--border); padding:8px; font-size:13px; text-align:left}
-    th{background:var(--card2)}
-    .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:#d1d5db}
-
-    /* Matrix & JSON views */
     .matrix{font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-            background:#0a1221; border:1px solid #182032; color:#c6d5f3;
-            padding:8px; border-radius:10px; overflow-x:auto; white-space:pre}
-    .scroll-box{max-height:400px; overflow:auto}
+            background:#fbfcff; border:1px solid #e6ecff; color:#0b1220;
+            padding:8px; border-radius:8px; overflow-x:auto; white-space:pre}
+    .scroll-box{max-height:380px; overflow:auto}
     details{margin-top:8px}
     summary{cursor:pointer}
 
-    /* Tabs */
-    .tabs{display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 6px}
-    .tab{padding:7px 12px; border-radius:10px; background:#0d1628; border:1px solid #1a2742; color:#a9bedc; cursor:pointer; font-size:13px}
-    .tab.active{background:#1c2f54; color:#fff; border-color:#31548e}
-
-    /* flow arrows */
-    .arrow{color:#7aa8ff; margin: 0 6px}
-    .muted{color:#9aa3b0}
+    /* Gradient Tree styles (light, paper-like) */
+    #gradTree .gt-wrap{display:grid;grid-template-columns:1fr;gap:10px}
+    #gradTree .gt-canvas{position:relative;min-height:720px;background:#fff;border:1px solid var(--rule);border-radius:12px;padding:18px;overflow:auto}
+    #gradTree .gt-details{background:#fff;border:1px solid var(--rule);border-radius:12px;padding:12px}
+    #gradTree .gt-node{
+      position:absolute; min-width:160px; max-width:240px; padding:8px 10px; border-radius:10px;
+      background:#ffffff; border:1px solid #e5e7eb; color:#0b1220; font:13px/1.35 system-ui;
+      box-shadow:0 1px 0 rgba(0,0,0,.05);
+      cursor:pointer; transition:transform .05s ease;
+    }
+    #gradTree .gt-node:hover{transform:translateY(-1px)}
+    #gradTree .gt-node .title{font-weight:700; font-size:13px; color:#0b1220}
+    #gradTree .gt-node .sub{color:#45506a}
+    #gradTree .gt-node .shape{color:#0b3e8a; font-family:ui-monospace,Menlo,Consolas,monospace}
+    #gradTree .gt-link{position:absolute; pointer-events:none}
+    #gradTree .chip{display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; border:1px solid #dbe3ff; color:#173785; font-size:11px}
+    #gradTree .mono{font-family:ui-monospace,Menlo,Consolas,monospace; color:#0b1220}
+    #gradTree .muted{color:#5b657a}
+    #gradTree h3{margin:.2rem 0 .4rem 0; font-size:14px; color:#0b1220}
+    #gradTree pre{background:#fbfcff; border:1px solid #e6ecff; color:#0b1220; padding:8px; border-radius:8px; overflow:auto; white-space:pre-wrap}
   </style>
 </head>
 <body>
   <div class="container">
     <div class="title">
-      <h1>🎓 Loss & Gradient <span class="mono">Flow</span> Explorer</h1>
-      <div class="row" style="justify-content:center; margin-top:8px">
-        <span class="chip">Live training step view</span>
-        <span class="chip ghost">Shows X → Wq → Q(h) → ∂L/∂Q(h) → ∇Wq</span>
-      </div>
+      <h1><span class="mono">loss.backward()</span> — Gradient Flow Explorer</h1>
+      <div class="smallnote">From logits down to Q/K/V and Wq, visualized like a paper figure.</div>
     </div>
 
     <div id="globalProgress" class="progress"></div>
 
     <div class="layout">
-      <!-- LEFT: Stats -->
-      <div class="card" id="statsBox"><h2>Overall Stats</h2><p class="muted">Loading…</p></div>
-
-      <!-- CENTER: Main Flow -->
-      <div id="flow" class="card">
-        <h2>Gradient Flow (Query path)</h2>
-        <div class="row">
-          <span class="pill">Q = X · Wq</span>
-          <span class="arrow">➡️</span>
-          <span class="pill">∇Wq = Xᵀ · ∇Q</span>
-        </div>
-        <p class="smallnote">Follow how the loss propagates back into the Query projection. Tabs let you inspect each head’s Q and ∂L/∂Q.</p>
-        <div class="matrix">Waiting for parameter snapshot…</div>
+      <!-- LEFT: Gradient Flow Tree (big canvas) -->
+      <div class="card" id="gradTree">
+        <h2>Gradient Flow Tree loss.backward()</h2>
+        <div class="smallnote">Click nodes to see forward formula and backward rule.</div>
+        <!-- the widget will render here -->
       </div>
 
-      <!-- RIGHT: Hardest Tokens -->
-      <div class="card" id="hardestTokensBox"><h2>Hardest Tokens</h2><p class="muted">Loading…</p></div>
+      <!-- RIGHT: Main content (X → Wq → Head tabs → ∇Wq) -->
+      <div id="flow" class="card">
+        <h2>Main Flow (Query path)</h2>
+        <p class="smallnote">Q = X · Wq → S = (QKᵀ)/√d → A=softmax(S) → C = A · V → Concat · W_O → logits</p>
+        <div class="matrix">Loading…</div>
+      </div>
     </div>
   </div>
+<script>
+function renderParamMinimal(obj){
+  const pname = obj?.parameter_name || "Wq";
+  const fused = /qkv/i.test(pname);
+  const label = fused ? `${pname} (Query slice of fused QKV)` : pname;
+  return `
+    <div class="note-card">
+      <div><strong>Example Gradient focus:</strong> <span class="mono">${label}</span></div>
+      <div style="font-size:13px; color:#45506a; margin-top:4px">
+        Computed by <span class="mono">∇Wq = Xᵀ · ∇Q</span> during <span class="mono">loss.backward()</span>.
+        Values shown below are for <em>this parameter only</em> (current step).
+      </div>
+    </div>`;
+}
+</script>
 
   <script>
     const LOSS_ENDPOINT  = "/loss";
     const PARAM_ENDPOINT = "/param_wq";
 
-    let loadedPieces = 0;
-    function pieceLoaded() {
-      loadedPieces += 1;
-      if (loadedPieces >= 2) {
-        const gp = document.getElementById("globalProgress");
-        if (gp) gp.style.display = "none";
-      }
-    }
-
-    /* ---------- helpers to find objects in nested JSON ---------- */
-    function looksLikeLoss(o){return o && typeof o==='object' && (('loss' in o)||('step' in o)||('hardest_tokens' in o));}
+    // ------- helpers to find objects in nested JSON -------
+    function looksLikeLoss(o){return o && typeof o==='object' && (('loss' in o)||('step' in o));}
     function looksLikeParam(o){return o && typeof o==='object' && ('parameter_name' in o);}
     function deepFind(root, pred, depth=0, maxDepth=10){
       if (!root || depth>maxDepth) return null;
       if (pred(root)) return root;
-      if (Array.isArray(root)) {
-        for (const el of root){const hit=deepFind(el,pred,depth+1,maxDepth); if (hit) return hit;}
-        return null;
-      }
-      if (typeof root==='object'){
-        for (const k of Object.keys(root)){const hit=deepFind(root[k],pred,depth+1,maxDepth); if (hit) return hit;}
-      }
+      if (Array.isArray(root)) { for (const el of root){ const hit=deepFind(el,pred,depth+1,maxDepth); if (hit) return hit; } return null; }
+      if (typeof root==='object'){ for (const k of Object.keys(root)){ const hit=deepFind(root[k],pred,depth+1,maxDepth); if (hit) return hit; } }
       return null;
     }
 
-    /* ---------- UI builders ---------- */
-    function mkRow(key,val){
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<th>${key}</th><td class="mono">${Array.isArray(val)? JSON.stringify(val): (val ?? '')}</td>`;
-      return tr;
-    }
-    function renderStats(obj){
-      const box=document.getElementById('statsBox');
-      box.innerHTML = `<h2>Overall Stats</h2>`;
-      const tbl=document.createElement('table'); const tbody=document.createElement('tbody');
-      const data = {
-        "Step": obj.step, "Loss": obj.loss, "PPL": obj.ppl, "PPL Overflow": obj.ppl_overflow,
-        "Batch Size": obj.batch_size, "Seq Len": obj.seq_len, "Vocab Size": obj.vocab_size,
-        "Ignore Index": obj.ignore_index, "Label Smoothing": obj.label_smoothing,
-        "Per-sequence Loss": obj.per_seq_loss
-      };
-      Object.entries(data).forEach(([k,v]) => { if (v!==undefined && v!==null) tbody.appendChild(mkRow(k,v)); });
-      tbl.appendChild(tbody); box.appendChild(tbl);
-    }
-    function renderHardestTokens(arr){
-      const box=document.getElementById('hardestTokensBox');
-      box.innerHTML = `<h2>Hardest Tokens</h2>`;
-      if (!arr || !arr.length){ box.innerHTML += `<p class="muted">No items.</p>`; return; }
-      const tbl=document.createElement('table');
-      tbl.innerHTML = `<thead><tr><th>B</th><th>T</th><th>Target</th><th>Pred</th><th>NLL</th></tr></thead>`;
-      const tbody=document.createElement('tbody');
-      arr.forEach(tok=>{
-        const tr=document.createElement('tr');
-        tr.innerHTML = `<td>${tok.b}</td><td>${tok.t}</td>
-                        <td>${tok.target_token ?? tok.target_id}</td>
-                        <td>${tok.pred_token ?? tok.pred_id}</td>
-                        <td class="mono">${tok.nll?.toFixed ? tok.nll.toFixed(4) : tok.nll}</td>`;
-        tbody.appendChild(tr);
-      });
-      tbl.appendChild(tbody);
-      box.appendChild(tbl);
-    }
-
-    /* ---------- pretty matrix renderers (book-style) ---------- */
-    function previewRows2x8(seq){
-      // first 2 tokens x 8 dims preview
-      return (seq||[]).slice(0,2).map((tok,ti)=>`Token ${ti}: ` + (tok||[]).slice(0,8).map(n=>typeof n==="number"? n.toFixed(3): n).join(" ")).join("\n");
+    // ------- pretty renderers (book-style) -------
+    function previewRows(seq, rows=2, cols=8){
+      return (seq||[]).slice(0,rows).map((tok,ti)=>`Token ${ti}: `+(tok||[]).slice(0,cols).map(n=>typeof n==="number"? n.toFixed(3): n).join(" ")).join("\n");
     }
 
     function renderInputX(X){
-      if(!X) return `<div class="flow-card"><p class="muted">No X found.</p></div>`;
+      if(!X) return `<div class="flow-card"><p class="smallnote">No X found.</p></div>`;
       const dModel = X?.[0]?.[0]?.length ?? 'd_model';
       let html = `<div class="flow-card">
         <h3>Input X — Sequence Embeddings</h3>
-        <p class="smallnote">
-          Each sequence has <b>T</b> tokens; each token is a <b>${dModel}</b>-dimensional vector (<em>d<sub>model</sub></em>).
-          Expand any sequence to inspect token vectors. (Horizontal scroll for long rows.)
-        </p>`;
-
+        <p class="smallnote">Each sequence has T tokens; each token is a <b>${dModel}</b>-dimensional vector (d_model). Expand to inspect tokens.</p>`;
       X.forEach((seq, si)=>{
         const T = seq?.length ?? '?';
-        const preview = previewRows2x8(seq);
+        const prev = previewRows(seq);
         html += `
           <details>
-            <summary><span class="chip">Sequence ${si}</span> <span class="muted">— ${T} tokens</span></summary>
+            <summary><b>Sequence ${si}</b> — ${T} tokens</summary>
             <div class="matrix">Preview (first 2 tokens × 8 dims)
-${preview}${T>2? "\n..." : ""}</div>
+${prev}${T>2? "\n..." : ""}</div>
             <details>
               <summary>Token-wise (segmented rows)</summary>
               <div class="scroll-box">
                 ${seq.map((tok,ti)=>{
-                  const rowPrev = (tok||[]).slice(0,8).map(v=>typeof v==="number"? v.toFixed(3): v).join(" ");
+                  const rowPrev=(tok||[]).slice(0,8).map(v=>typeof v==="number"? v.toFixed(3): v).join(" ");
                   return `<details><summary>Token ${ti} — first 8 dims: <span class="mono">${rowPrev}</span> …</summary>
                             <div class="matrix">${JSON.stringify(tok)}</div>
                           </details>`;
                 }).join("")}
               </div>
             </details>
-            <details>
-              <summary>Full JSON (sequence)</summary>
-              <div class="matrix scroll-box">${JSON.stringify(seq,null,2)}</div>
-            </details>
           </details>
         `;
       });
-
       html += `</div>`;
       return html;
     }
 
     function renderWq(Wq, numHeads=8){
-      if(!Wq) return `<div class="flow-card"><p class="muted">No Wq found.</p></div>`;
-      const dModel = Wq.length;
-      const dHead  = Math.floor(dModel / numHeads);
+      if(!Wq) return `<div class="flow-card"><p class="smallnote">No Wq found.</p></div>`;
+      const dModel = Wq.length, dHead = Math.floor(dModel / numHeads);
       const topLeft = Wq.slice(0,5).map(r=>r.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
-
       let html = `<div class="flow-card">
         <h3>Projection Matrix Wq</h3>
-        <p class="smallnote">
-          Shape: <b>[${dModel} × ${dModel}]</b>. Conceptually partitioned into <b>${numHeads}</b> head blocks of size
-          <b>[${dModel} × ${dHead}]</b> (columns). Formula: <span class="mono">Q = X · Wq</span>.
-        </p>
+        <p class="smallnote">Shape: <b>[${dModel} × ${dModel}]</b>. Partition columns into <b>${numHeads}</b> blocks of size <b>[${dModel} × ${dHead}]</b> (one per head). Formula: <span class="mono">Q = X · Wq</span>.</p>
         <div class="matrix">Preview (top-left 5×8)
 ${topLeft}
         </div>
@@ -232,23 +174,12 @@ ${topLeft}
           <summary>Head-wise column blocks</summary>
           <div class="scroll-box">
             ${Array.from({length:numHeads}).map((_,h)=>{
-              const c0 = h*dHead, c1 = c0 + dHead;
-              const block = Wq.slice(0,5).map(r=>r.slice(c0, Math.min(c1, c0+8)).map(v=>v.toFixed(3)).join(" ")).join("\n");
+              const c0=h*dHead, c1=c0+dHead;
+              const block = Wq.slice(0,5).map(r=>r.slice(c0, Math.min(c1,c0+8)).map(v=>v.toFixed(3)).join(" ")).join("\n");
               return `<details><summary>Head ${h} — columns [${c0}:${c1})</summary>
-                        <div class="matrix">Preview (rows 0..4 × first 8 cols of head ${h})
+                        <div class="matrix">Rows 0..4 × first 8 cols of head ${h}
 ${block}
                         </div>
-                      </details>`;
-            }).join("")}
-          </div>
-        </details>
-        <details>
-          <summary>Full Wq (row-wise segmentation)</summary>
-          <div class="scroll-box">
-            ${Wq.map((row,ri)=>{
-              const prev=row.slice(0,8).map(v=>v.toFixed(3)).join(" ");
-              return `<details><summary>Row ${ri} — first 8 dims: <span class="mono">${prev}</span> …</summary>
-                        <div class="matrix">${JSON.stringify(row)}</div>
                       </details>`;
             }).join("")}
           </div>
@@ -257,15 +188,15 @@ ${block}
       return html;
     }
 
-    function renderQHead(Q2D, headIndex){
+    function renderQHead(Q2D, h){
       if(!Q2D) return '';
       const T=Q2D.length, dHead=(Q2D?.[0]?.length ?? '?');
-      const preview = Q2D.slice(0,3).map((tok,ti)=>"Token "+ti+": "+tok.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
-      let html = `<div class="flow-card">
-        <h3>Projected Queries Q — Head ${headIndex}</h3>
+      const prev = Q2D.slice(0,3).map((tok,ti)=>"Token "+ti+": "+tok.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
+      return `<div class="flow-card">
+        <h3>Projected Queries Q — Head ${h}</h3>
         <p class="smallnote">Shape: <b>[${T} × ${dHead}]</b>. Produced by <span class="mono">Q = X · Wq</span> then reshaped into heads.</p>
         <details open><summary>Preview (first 3 tokens × 8 dims)</summary>
-          <div class="matrix">${preview}${T>3? "\n..." : ""}</div>
+          <div class="matrix">${prev}${T>3? "\n..." : ""}</div>
         </details>
         <details>
           <summary>Full Q by tokens (${T})</summary>
@@ -279,18 +210,17 @@ ${block}
           </div>
         </details>
       </div>`;
-      return html;
     }
 
-    function renderDLdQHead(D2D, headIndex){
+    function renderDLdQHead(D2D, h){
       if(!D2D) return '';
       const T=D2D.length, dHead=(D2D?.[0]?.length ?? '?');
-      const preview = D2D.slice(0,3).map((tok,ti)=>"Token "+ti+": "+tok.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
-      let html = `<div class="flow-card">
-        <h3>Gradient w.r.t Q (∂L/∂Q) — Head ${headIndex}</h3>
-        <p class="smallnote">Shape: <b>[${T} × ${dHead}]</b>. Error signals that flow back to queries in this head.</p>
+      const prev = D2D.slice(0,3).map((tok,ti)=>"Token "+ti+": "+tok.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
+      return `<div class="flow-card">
+        <h3>Gradient w.r.t Q (∂L/∂Q) — Head ${h}</h3>
+        <p class="smallnote">Shape: <b>[${T} × ${dHead}]</b>. Using <span class="mono">gS = (gA − ⟨gA,A⟩) ⊙ A</span> and <span class="mono">gQ = gS · K / √d</span>.</p>
         <details open><summary>Preview (first 3 tokens × 8 dims)</summary>
-          <div class="matrix">${preview}${T>3? "\n..." : ""}</div>
+          <div class="matrix">${prev}${T>3? "\n..." : ""}</div>
         </details>
         <details>
           <summary>Full ∂L/∂Q by tokens (${T})</summary>
@@ -304,142 +234,243 @@ ${block}
           </div>
         </details>
       </div>`;
-      return html;
     }
 
     function renderGradWq(grad){
-      if(!grad) return `<div class="flow-card"><p class="muted">No ∇Wq found.</p></div>`;
+      if(!grad) return `<div class="flow-card"><p class="smallnote">No ∇Wq found.</p></div>`;
       const H = grad.length, W = grad?.[0]?.length ?? '?';
-      const topLeft = grad.slice(0,5).map(r=>r.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
-      let html = `<div class="flow-card">
+      const tl = grad.slice(0,5).map(r=>r.slice(0,8).map(v=>v.toFixed(3)).join(" ")).join("\n");
+      return `<div class="flow-card">
         <h3>Gradient of Wq (∇Wq)</h3>
-        <p class="smallnote">
-          Shape: <b>[${H} × ${W}]</b>. Formula: <span class="mono">∇Wq = Xᵀ · ∇Q</span>.
-          Each element: <span class="mono">∂L/∂Wq[i,j] = Σₜ X[t,i] · ∂L/∂Q[t,j]</span>
-        </p>
+        <p class="smallnote">Shape: <b>[${H} × ${W}]</b>. Formula: <span class="mono">∇Wq = Xᵀ · ∇Q</span>. Each element: <span class="mono">∂L/∂Wq[i,j] = Σₜ X[t,i] · ∂L/∂Q[t,j]</span>.</p>
         <div class="matrix">Preview (top-left 5×8)
-${topLeft}
+${tl}
         </div>
-        <details>
-          <summary>Full ∇Wq (row-wise segmentation)</summary>
-          <div class="scroll-box">
-            ${grad.map((row,ri)=>{
-              const prev=row.slice(0,8).map(v=>v.toFixed(3)).join(" ");
-              return `<details><summary>Row ${ri} — first 8 dims: <span class="mono">${prev}</span> …</summary>
-                        <div class="matrix">${JSON.stringify(row)}</div>
-                      </details>`;
-            }).join("")}
-          </div>
-        </details>
       </div>`;
-      return html;
     }
 
-    /* ---------- Load /loss ---------- */
+    // ------- Loaders -------
+    let PARAM_OBJ = null, LOSS_OBJ = null;
+    let loadedPieces = 0;
+    function pieceLoaded(){ if(++loadedPieces >= 2){ const gp=document.getElementById('globalProgress'); if(gp) gp.style.display='none'; } }
+
     async function loadLoss(){
       try{
         const res = await fetch(LOSS_ENDPOINT+`?ts=${Date.now()}`, {cache:'no-store'});
         const payload = await res.json();
         const obj = deepFind(payload, looksLikeLoss) || payload;
-        renderStats(obj);
-        renderHardestTokens(obj.hardest_tokens);
-      }catch(e){
-        document.getElementById('statsBox').innerHTML = `<h2>Overall Stats</h2><p class="muted">Failed to load.</p>`;
-        document.getElementById('hardestTokensBox').innerHTML = `<h2>Hardest Tokens</h2><p class="muted">Failed to load.</p>`;
-        console.error(e);
-      } finally { pieceLoaded(); }
+        window.LOSS_OBJ = LOSS_OBJ = obj; // expose for tree
+      }catch(e){ console.error(e); }
+      finally { pieceLoaded(); }
     }
 
-    /* ---------- Load /param_wq & build flow ---------- */
-    let PARAM_OBJ = null;
-
-    function buildHeadTabs(numHeads){
-      const wrap = document.createElement('div');
-      wrap.className = 'tabs';
-      for (let h=0; h<numHeads; h++){
-        const b=document.createElement('div');
-        b.className='tab';
-        b.id = `tab-${h}`;
-        b.textContent = `Head ${h}`;
-        b.onclick = ()=> showHead(h);
-        wrap.appendChild(b);
-      }
-      return wrap;
+    function buildHeadTabsHTML(numHeads){
+      let html = `<div class="tabs" id="headTabs">`;
+      for(let h=0; h<numHeads; h++){ html += `<button class="tab" data-head="${h}">Head ${h}</button>`; }
+      html += `</div><div id="headContent"></div>`;
+      return html;
     }
 
-    function showHead(h){
+    function renderHead(h){
+      const headContent = document.getElementById('headContent');
       if (!PARAM_OBJ) return;
-      const headContainer = document.getElementById('headContent');
-      if (!headContainer) return;
-
-      // Deactivate tabs
-      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-      const t = document.getElementById(`tab-${h}`); if (t) t.classList.add('active');
-
-      // Q and ∂L/∂Q for this head (Batch 0)
-      const Qh   = PARAM_OBJ?.Q?.[0]?.[h];
-      const DQh  = PARAM_OBJ?.dLdQ?.[0]?.[h];
-
+      const Qh  = PARAM_OBJ?.Q?.[0]?.[h];
+      const DQh = PARAM_OBJ?.dLdQ?.[0]?.[h];
       let html = '';
       html += renderQHead(Qh, h);
       html += renderDLdQHead(DQh, h);
-      headContainer.innerHTML = html || `<p class="muted">No data for this head.</p>`;
+      headContent.innerHTML = html || `<p class="smallnote">No data for this head.</p>`;
+      // toggle active state
+      document.querySelectorAll('#headTabs .tab').forEach(btn=>btn.classList.remove('active'));
+      const btn = document.querySelector(`#headTabs .tab[data-head="${h}"]`);
+      if (btn) btn.classList.add('active');
     }
+
+    // robust event delegation (fixes "tabs not clickable")
+    document.addEventListener('click', (e)=>{
+      const btn = e.target.closest('#headTabs .tab');
+      if (!btn) return;
+      const h = Number(btn.dataset.head);
+      if (!Number.isFinite(h)) return;
+      renderHead(h);
+    });
 
     async function loadFlow(){
       const flow = document.getElementById('flow');
       try{
         const res = await fetch(PARAM_ENDPOINT+`?ts=${Date.now()}`, {cache:'no-store'});
-        if (!res.ok){ flow.innerHTML = `<p class="muted">Backward trace endpoint not enabled yet.</p>`; return; }
         const payload = await res.json();
         const obj = deepFind(payload, looksLikeParam) || payload;
-        PARAM_OBJ = obj;
+        window.PARAM_OBJ = PARAM_OBJ = obj; // expose for tree
 
-        // Header with step/loss/param
-        let html = `<div class="row" style="justify-content:space-between; align-items:center;">
-                      <div class="row">
-                        <span class="pill">Step: <span class="mono">${obj.step ?? 'n/a'}</span></span>
-                        <span class="pill">Loss: <span class="mono">${(obj.loss ?? 'n/a')}</span></span>
-                      </div>
-                      <span class="chip">Param: ${obj.parameter_name || 'Wq'}</span>
-                    </div>`;
-
-        // 1) Input X (book-style per sequence)
-        html += renderInputX(obj.X);
-
-        // 2) Wq (book-style; head-wise column blocks)
-        html += renderWq(obj.Wq, (obj.Q?.[0]?.length || 8));
-
-        // 3) Head tabs: per-head Q and ∂L/∂Q (Batch 0)
         const numHeads = obj.Q?.[0]?.length || 0;
+
+        // Build right column content
+        let html = `<div class="smallnote">Step <b>${obj.step ?? 'n/a'}</b>, Loss <b>${(obj.loss ?? 'n/a')}</b>, Param <b>${obj.parameter_name || 'Wq'}</b></div>`;
+        html += renderParamMinimal(obj);
+        html += renderInputX(obj.X);
+        html += renderWq(obj.Wq, numHeads || 8);
         if (numHeads > 0){
           html += `<div class="flow-card"><h3>Head Views</h3>
-                     <p class="smallnote">Switch between heads to see projected queries and their gradients.</p>
-                     <div id="headTabs"></div>
-                     <div id="headContent"></div>
+                     <p class="smallnote">Inspect per-head Q and ∂L/∂Q.</p>
+                     ${buildHeadTabsHTML(numHeads)}
                    </div>`;
         }
-
-        // 4) ∇Wq at the end
         html += renderGradWq(obj.grad_Wq);
-
         flow.innerHTML = html;
 
-        if (numHeads > 0){
-          const tabs = buildHeadTabs(numHeads);
-          document.getElementById('headTabs').appendChild(tabs);
-          showHead(0); // default to head 0
+        if (numHeads > 0) renderHead(0); // default head
+
+        // Insert Gradient Tree container in the left card and render it
+        const treeHost = document.getElementById('gradTree');
+        if (treeHost){
+          // ensure we have a container div for the widget internals
+          const exists = treeHost.querySelector('.gt-wrap');
+          if (!exists){
+            const d = document.createElement('div');
+            d.className = 'gt-wrap';
+            d.innerHTML = `<div class="gt-canvas"><svg class="gt-link" width="2200" height="1400"></svg></div>
+                           <div class="gt-details"><h3>Node Details</h3><div id="gtInfo" class="smallnote">Click a node…</div></div>`;
+            treeHost.appendChild(d);
+          }
+          // render / refresh the tree
+          renderGradTree({ containerId: "gradTree" });
         }
 
       }catch(e){
-        flow.innerHTML = `<div class="matrix">Failed to load parameter snapshot.</div>`;
         console.error(e);
+        flow.innerHTML = `<div class="matrix">Failed to load parameter snapshot.</div>`;
       } finally { pieceLoaded(); }
     }
 
-    // Init
-    loadLoss();
-    loadFlow();
+    // ------- Gradient Tree widget (drop-in, light theme) -------
+    (function(){
+      function line(svg, x1,y1,x2,y2, color="#2563eb"){
+        const p = document.createElementNS("http://www.w3.org/2000/svg","path");
+        const mx = (x1+x2)/2;
+        const d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+        p.setAttribute("d", d); p.setAttribute("fill","none"); p.setAttribute("stroke", color); p.setAttribute("stroke-width","2");
+        svg.appendChild(p);
+      }
+      function makeShapes(cfg){
+        const H = cfg?.H ?? (window.PARAM_OBJ?.Q?.[0]?.length ?? 8);
+        const d_head = cfg?.d_head ?? (window.PARAM_OBJ?.Q?.[0]?.[0]?.[0]?.length ?? 64);
+        const B = cfg?.B ?? (window.LOSS_OBJ?.batch_size ?? 1);
+        const T = cfg?.T ?? (window.LOSS_OBJ?.seq_len ?? 128);
+        const V = cfg?.V ?? (window.LOSS_OBJ?.vocab_size ?? 50000);
+        const d_model = cfg?.d_model ?? (H * d_head);
+        return {B,T,V,H,d_head,d_model};
+      }
+      function treeData(cfg){
+        const {B,T,V,H,d_head,d_model} = makeShapes(cfg);
+        const N = [
+          {id:"loss", x:  40, y:  10,  title:"Cross-Entropy Loss", sub:"L = -log p[y]", shape:"[scalar]"},
+          {id:"logits", x: 40, y: 100, title:"Logits", sub:"z", shape:`[B=${B}, T=${Math.max(0,T-1)}, V=${V}]`,
+           grad:"∂L/∂z = softmax(z) - one_hot(y)"},
+          {id:"vocablin", x: 40, y: 210, title:"Vocab Linear", sub:"z = hidden · W_vocabᵀ + b",
+           grad:"∂L/∂hidden = (∂L/∂z) · W_vocab\n∂L/∂W_vocab = (∂L/∂z)ᵀ · hidden\n∂L/∂b = Σ ∂L/∂z"},
+          {id:"hidden", x: 40, y: 320, title:"Hidden (LN + Residual + MLP + Attn)", sub:"splits to Attn & MLP", shape:`[B, T-1, d_model=${d_model}]`,
+           grad:"Grads add at residual joins"},
+
+          {id:"outproj", x: 400, y: 210, title:"Out Proj (W_O)", sub:"y = Concat · W_Oᵀ",
+           grad:"∂L/∂Concat = (∂L/∂y) · W_O\n∂L/∂W_O = (∂L/∂y)ᵀ · Concat"},
+          {id:"concat", x: 400, y: 320, title:"Concat Heads", sub:`[B, T-1, H·d_head], H=${H}`,
+
+           grad:"reshape/split grads per head"},
+
+          {id:"C", x: 780, y: 100, title:"Context Cₕ", sub:"C = A · V", shape:`[T-1, d_head=${d_head}]`,
+           grad:"∂L/∂A = (∂L/∂C) · Vᵀ\n∂L/∂V = Aᵀ · (∂L/∂C)"},
+          {id:"A", x: 780, y: 210, title:"Attention Aₕ", sub:"A = softmax(S) (row-wise)", shape:`[T-1, T-1]`,
+           grad:"∂L/∂S = (gA - ⟨gA,A⟩) ⊙ A"},
+          {id:"S", x: 780, y: 320, title:"Scores Sₕ", sub:"S = (Q Kᵀ)/√d_head + mask", shape:`[T-1, T-1]`,
+           grad:"∂L/∂Q = (∂L/∂S) · K / √d\n∂L/∂K = (∂L/∂S)ᵀ · Q / √d"},
+
+          {id:"Q", x: 1160, y: 100, title:"Qₕ", sub:"Q = X · Wq", shape:`[T-1, d_head]`,
+           grad:"∂L/∂Wq = Xᵀ · (∂L/∂Q)\n∂L/∂X += (∂L/∂Q) · Wqᵀ"},
+          {id:"K", x: 1160, y: 210, title:"Kₕ", sub:"K = X · Wk", shape:`[T-1, d_head]`,
+           grad:"∂L/∂Wk = Xᵀ · (∂L/∂K)\n∂L/∂X += (∂L/∂K) · Wkᵀ"},
+          {id:"V", x: 1160, y: 320, title:"Vₕ", sub:"V = X · Wv", shape:`[T-1, d_head]`,
+           grad:"∂L/∂Wv = Xᵀ · (∂L/∂V)\n∂L/∂X += (∂L/∂V) · Wvᵀ"},
+
+          {id:"X", x: 1490, y: 210, title:"Block Input X", sub:"from previous layer/embeds", shape:`[T-1, d_model=${d_model}]`,
+           grad:"accumulates from Q,K,V paths"}
+        ];
+        const E = [
+          ["loss","logits"],
+          ["logits","vocablin"],
+          ["vocablin","hidden"],
+          ["hidden","outproj"],
+          ["outproj","concat"],
+          ["concat","C"],
+          ["C","A"],
+          ["A","S"],
+          ["S","Q"], ["S","K"],
+          ["Q","X"], ["K","X"],
+          ["C","V"], ["V","X"],
+        ];
+        return {nodes:N, edges:E, meta:{B,T,V,H,d_model,d_head}};
+      }
+
+      window.renderGradTree = function renderGradTree(cfg={containerId:"gradTree"}){
+        const root = document.getElementById(cfg.containerId);
+        if (!root) return;
+        const host = root.querySelector('.gt-wrap');
+        if (!host) return; // built by loadFlow
+
+        const {nodes, edges, meta} = treeData(cfg);
+        const canvas = root.querySelector(".gt-canvas");
+        const svg    = root.querySelector("svg");
+        const info   = root.querySelector("#gtInfo");
+        // reset svg
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+        // place nodes
+        const nodeEls = {};
+        nodes.forEach(n=>{
+          const el = document.createElement("div");
+          el.className = "gt-node";
+          el.style.left = (n.x)+"px";
+          el.style.top  = (n.y)+"px";
+          el.innerHTML = `
+            <div class="title">${n.title}</div>
+            <div class="sub">${n.sub || ""}</div>
+            ${n.shape ? `<div class="shape mono">${n.shape}</div>` : ""}
+          `;
+          el.onclick = ()=>{
+            info.innerHTML = `
+              <div class="chip">${n.title}</div>
+              ${n.shape ? `<div style="margin-top:6px"><span class="muted">Shape: </span><span class="mono">${n.shape}</span></div>`:""}
+              ${n.sub ? `<div style="margin-top:6px"><span class="muted">Forward: </span><span class="mono">${n.sub}</span></div>`:""}
+              ${n.grad ? `<div style="margin-top:6px"><span class="muted">Backward: </span><pre>${n.grad}</pre></div>`:""}
+              <div class="smallnote" style="margin-top:6px">B=${meta.B}, T=${Math.max(0,meta.T-1)}, V=${meta.V}, H=${meta.H}, d_head=${meta.d_head}, d_model=${meta.d_model}</div>
+            `;
+          };
+          canvas.appendChild(el);
+          nodeEls[n.id]=el;
+        });
+
+        // curved links
+        function centerRight(el){const r=el.getBoundingClientRect(); const p=canvas.getBoundingClientRect(); return {x:r.left-p.left + r.width, y:r.top-p.top + r.height/2};}
+        function centerLeft(el){const r=el.getBoundingClientRect(); const p=canvas.getBoundingClientRect(); return {x:r.left-p.left, y:r.top-p.top + r.height/2};}
+        edges.forEach(([from,to])=>{
+          const a=nodeEls[from], b=nodeEls[to];
+          if(!a||!b) return;
+          const A=centerRight(a), B=centerLeft(b);
+          line(svg, A.x+6, A.y, B.x-6, B.y);
+        });
+
+        nodeEls["logits"]?.click(); // default
+      };
+    })();
+
+    // ------- Kick off -------
+    (async () => {
+      await loadLoss();
+      await loadFlow();     // builds DOM (including gradTree host) and sets PARAM_OBJ
+      // renderGradTree is already called inside loadFlow after DOM insert,
+      // but call again here if you want to refresh after both endpoints:
+      renderGradTree({ containerId: "gradTree" });
+    })();
   </script>
 </body>
 </html>

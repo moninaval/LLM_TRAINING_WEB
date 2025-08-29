@@ -16,6 +16,9 @@
     --muted:#6b778c;
     --stroke:#dbe3f3;
     --arrow:#3b82f6;
+    --click-badge-size: 24px;
+--click-badge-bg: #2746b0;
+--click-badge-fg: #ffffff;
 
     /* block fills */
     --tok:#e2ecff;   --embed:#eaf6e5; --ln:#ffe7c2;  --qkv:#f9c7d1;  --head:#dbe6fb;
@@ -67,6 +70,29 @@
   .progress-bar { width: 0%; height: 100%; background-color: #4CAF50; transition: width 0.3s ease-in-out; }
   .training-status { text-align: center; margin-top: 4px; font-size: 12px; color: var(--muted); min-height: 16px; }
   .err{color:#c0392b;margin:8px 12px;text-align:center;font-size:13px;min-height:18px;}
+
+  /* --- hero intro strip --- */
+.hero {
+  max-width:1180px; margin:10px auto 0; background:#fff;
+  border:1px solid var(--stroke); border-radius:12px; padding:14px 16px;
+  display:grid; grid-template-columns:1.3fr .7fr; gap:16px; align-items:center;
+  box-shadow:0 2px 8px rgba(14,30,84,.05);
+}
+.hero h2{ margin:0; font-size:18px; font-weight:800; letter-spacing:.1px }
+.hero p.sub{ margin:6px 0 0; color:var(--muted); font-size:13px }
+.hero-list{ margin:10px 0 0; padding-left:18px; color:#3b4a66; font-size:13px }
+.hero-list li{ margin:2px 0 }
+.badges{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
+.badge{ background:#f1f5ff; border:1px solid var(--stroke); border-radius:999px; padding:4px 8px; font-size:12px; color:#2746b0 }
+.quick-links{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end }
+.quick-links a{
+  background:var(--btn); border:1px solid var(--stroke); border-radius:10px;
+  padding:8px 10px; text-decoration:none; color:#1c2b5a; font-size:13px;
+}
+.quick-links a:hover{ background:var(--btnh) }
+.legend{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px }
+.legend .chip{ display:flex; align-items:center; gap:6px; font-size:12px; color:#3b4a66 }
+.legend .sw{ width:12px; height:12px; border-radius:3px; border:1px solid var(--stroke) }
 
   /* ---------------- Diagram (paper look) ---------------- */
   #canvas{ padding:12px }
@@ -128,9 +154,47 @@
     font-weight:600;
   }
 
-  /* clickable affordance */
-  .clickable{ cursor:pointer }
-  .clickable:hover{ filter:brightness(.98) }
+/* clickable affordance */
+.clickable{ cursor:pointer; position:relative }
+.clickable:hover{ filter:brightness(.98) }
+
+/* BIG circular arrow badge (visible) */
+.blk.clickable::after,
+.decoder.clickable::after{
+  content: "➔";                       /* big arrow glyph */
+  position: absolute;
+  top: 6px; right: 8px;               /* corner position */
+  width: var(--click-badge-size);
+  height: var(--click-badge-size);
+  border-radius: 999px;
+  background: var(--click-badge-bg);
+  color: var(--click-badge-fg);
+  font-size: 14px;                    /* arrow size inside badge */
+  font-weight: 900;
+  line-height: 1;                     /* center nicely */
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  opacity: 0.95;
+  transform: translateY(0);
+  transition: transform .15s ease, filter .15s ease, opacity .15s ease;
+  pointer-events: none;               /* don't block clicks */
+}
+
+/* slightly larger badge for big decoder sections */
+.decoder.clickable::after{
+  top: 10px; right: 12px;
+  width: calc(var(--click-badge-size) + 6px);
+  height: calc(var(--click-badge-size) + 6px);
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+.clickable:hover::after{
+  transform: translateY(-1px) scale(1.06);
+  filter: brightness(1.08);
+  opacity: 1;
+}
+
 </style>
 </head>
 <body>
@@ -139,10 +203,45 @@
   <span id="meta" class="pill">loading…</span>
 </header>
 
+
+<!-- HERO INTRO START -->
+<div class="hero" id="heroIntro">
+  <div>
+    <h2>LLM Trainer & Explorer — Interactive Overview</h2>
+    <p class="sub">Click any box to open Tokenization, Embeddings, Decoder/Attention, FFN, Loss/Gradients, or Optimization.</p>
+    <ul class="hero-list">
+      <li>Configure your LLM parameters on the right to see live changes (L, H, D, D<sub>FF</sub>, |V|).</li>
+      <li>Hover the <b>?</b> icons for concise explanations.</li>
+      <li>Use the training controls below to simulate steps and watch progress.</li>
+    </ul>
+    <div class="badges" id="heroBadges"></div>
+    <div class="legend">
+      <div class="chip"><span class="sw" style="background:var(--qkv)"></span>QKV Proj</div>
+      <div class="chip"><span class="sw" style="background:var(--head)"></span>Heads</div>
+      <div class="chip"><span class="sw" style="background:var(--wo)"></span>W_O</div>
+      <div class="chip"><span class="sw" style="background:var(--ffn)"></span>FFN / MLP</div>
+      <div class="chip"><span class="sw" style="background:var(--lm)"></span>Output Head</div>
+      <div class="chip"><span class="sw" style="background:var(--loss)"></span>Loss / Gradients</div>
+    </div>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
+    <div class="quick-links">
+      <a href="loss.html">Loss & Gradients</a>
+      <a href="optim.html">Optimization</a>
+      <a href="embeddings.html">Embeddings</a>
+    </div>
+    <div style="font-size:12px; color:var(--muted);">Pro tip: <span style="font-family:ui-monospace">Click boxes</span> to deep-dive.</div>
+  </div>
+</div>
+<!-- HERO INTRO END -->
+
+
+
 <div class="training-section">
   <div class="training-controls">
     <label for="stepsInput">Training Steps:</label>
-    <input type="number" id="stepsInput" value="100" min="1" class="rowKV" style="padding: 8px; width: 80px;" />
+    <input type="number" id="stepsInput" value="100" min="1"
+       class="tinput" />
     <button id="startTrainingBtn">🚀 Start LLM Model Training</button>
   </div>
   <div id="training-progress-container" style="display:none;">
@@ -171,7 +270,7 @@
       <div id="param-formula" class="formula"></div>
     </div>
     
-    <h2 class="panelTitle">Model Configuration</h2>
+    <h2 class="panelTitle">Model Configuration,Decide Number of Trainable Paramater</h2>
     <p class="hint">Editable: numbers & booleans. Strings are read-only.</p>
     <div id="cfgForm" class="kv"></div>
     <div style="margin-top: 12px; text-align: center;">
@@ -248,6 +347,18 @@ function addHeadsGrid(container, H){
     grid.appendChild(c);
   }
   container.appendChild(grid);
+}
+function updateHeroBadges(cfg){
+  const {L,H,DM,DFF,VOC} = normalize(cfg);
+  const hero = document.getElementById('heroBadges');
+  if(!hero) return;
+  hero.innerHTML = `
+    <span class="badge">Layers: ${L}</span>
+    <span class="badge">Heads: ${H}</span>
+    <span class="badge">Hidden D: ${DM}</span>
+    <span class="badge">FFN D: ${DFF}</span>
+    <span class="badge">Vocab: ${fmt(VOC)}</span>
+  `;
 }
 
 /* ---------- RENDERER ---------- */
