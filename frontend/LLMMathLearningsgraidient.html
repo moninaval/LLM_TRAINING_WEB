@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tiny Transformer — Loss & Backprop (Continuation)</title>
+  <style>
+    :root{--bg:#0b1220;--fg:#e5eaf3;--muted:#9aa4b2;--card:#121a2c;--stroke:#2a3550;--accent:#6aa1ff;--emb:#2a3b67;--qkv:#205c64;--attn:#1e6b74;--ffn:#205c38;--logits:#5a3350;--misc:#3b2d52}
+    *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif}
+    header{padding:18px 20px;border-bottom:1px solid var(--stroke);background:#0d1628;position:sticky;top:0;z-index:5}
+    h1{margin:0;font-size:20px} .sub{color:var(--muted);font-size:12px;margin-top:4px}
+    .wrap{display:grid;grid-template-columns: 260px 1fr; gap:18px; padding:18px}
+    .card{background:var(--card);border:1px solid var(--stroke);border-radius:16px;padding:14px;box-shadow:0 6px 16px rgba(0,0,0,.25)}
+    .card h2{font-size:16px;margin:0 0 10px 0}
+    .card h3{font-size:14px;margin:14px 0 8px 0;color:var(--muted)}
+    table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--stroke);border-radius:12px;overflow:hidden}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--stroke);text-align:right;font-variant-numeric:tabular-nums}
+    th{background:#0c1426;color:#c6d1e6;text-align:center} tr:last-child td{border-bottom:none}
+    caption{caption-side:top;text-align:left;color:var(--muted);padding-bottom:6px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid var(--stroke);color:#cdd6f4}
+    .pill.emb{background:var(--emb)} .pill.qkv{background:var(--qkv)} .pill.attn{background:var(--attn)} .pill.ffn{background:var(--ffn)} .pill.logits{background:var(--logits)} .pill.misc{background:var(--misc)}
+    .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.45;background:#0e1830;color:#b9c3da;border:1px solid var(--stroke);border-radius:12px;padding:10px;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Tiny Transformer — Loss & Backprop (Continuation)</h1>
+    <div class="sub">This page continues from <em>“Tiny Transformer Demo — 1 Layer · 1 Head”</em> with the exact same tokens, weights and forward values. We compute <strong>causal LM loss</strong> at pos0 only (predict next token), then backprop all gradients.</div>
+  </header>
+  <div class="wrap">
+    <aside class="card">
+      <h2>Continuity setup</h2>
+      <div class="code">• Tokens: [2, 3] (same as forward page)
+• Same parameters: E, W_Q/K/V/O, W1/W2, W_vocab, b's
+• We recompute forward to mirror the exact numbers
+• Causal LM loss: only position 0 contributes (target = token at pos1 = 3). Position 1 is ignored.</div>
+      <h3>Shapes</h3>
+      <div id="shapes"></div>
+    </aside>
+
+    <main class="grid">
+      <section class="card">
+        <h2>Forward recap (from previous page)</h2>
+        <div id="tbl_logits"></div>
+        <div id="tbl_probs"></div>
+      </section>
+
+      <section class="card">
+        <h2>Loss (causal, pos0 only)</h2>
+        <div id="tbl_targets"></div>
+        <div id="targets_explain" class="code"></div>
+        <div id="tbl_mask"></div>
+        <div id="tbl_nll"></div>
+        <div id="nll_explain" class="code"></div>
+        <div id="tbl_loss"></div>
+      </section>
+
+      <section class="card">
+        <h2>Gradients at output</h2>
+        <div id="tbl_dlogits"></div>
+        <div id="dlogits_explain" class="code"></div>
+        <div id="tbl_dW_vocab"></div>
+        <div id="tbl_db_vocab"></div>
+        <div id="tbl_dH2"></div>
+      </section>
+
+      <section class="card">
+        <h2>Backprop through FFN</h2>
+        <div id="tbl_dF"></div>
+        <div id="tbl_dW2"></div>
+        <div id="tbl_db2"></div>
+        <div id="tbl_dR"></div>
+        <div id="tbl_dU"></div>
+        <div id="tbl_dW1"></div>
+        <div id="tbl_db1"></div>
+        <div id="tbl_dH1_total"></div>
+      </section>
+
+      <section class="card">
+        <h2>Backprop through Attention</h2>
+        <div id="tbl_dattn_out"></div>
+        <div id="tbl_dW_O"></div>
+        <div id="tbl_dZ"></div>
+        <div id="tbl_dA"></div>
+        <div id="tbl_dS"></div>
+        <div id="tbl_dQ"></div>
+        <div id="tbl_dK"></div>
+        <div id="tbl_dV"></div>
+        <div id="tbl_dW_Q"></div>
+        <div id="tbl_dW_K"></div>
+        <div id="tbl_dW_V"></div>
+      </section>
+
+      <section class="card">
+        <h2>Back to embeddings</h2>
+        <div id="tbl_dX"></div>
+        <div id="tbl_dE"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // helpers
+    function matmul(A,B){const n=A.length,m=A[0].length,p=B[0].length;const C=Array.from({length:n},()=>Array(p).fill(0));for(let i=0;i<n;i++)for(let k=0;k<m;k++){const aik=A[i][k];for(let j=0;j<p;j++)C[i][j]+=aik*B[k][j];}return C;}
+    function add(A,B){return A.map((r,i)=>r.map((v,j)=>v+B[i][j]));}
+    function addVec(A,b){return A.map(r=>r.map((v,j)=>v+(b[j]||0)));}
+    function relu(A){return A.map(r=>r.map(v=>Math.max(0,v)));}
+    function reluMask(U){return U.map(r=>r.map(v=>v>0?1:0));}
+    function hadamard(A,B){return A.map((r,i)=>r.map((v,j)=>v*B[i][j]));}
+    function transpose(A){const n=A.length,m=A[0].length;const T=Array.from({length:m},()=>Array(n).fill(0));for(let i=0;i<n;i++)for(let j=0;j<m;j++)T[j][i]=A[i][j];return T;}
+    function softmaxRows(A){return A.map(row=>{const m=Math.max(...row);const ex=row.map(v=>Math.exp(v-m));const s=ex.reduce((a,b)=>a+b,0);return ex.map(v=>v/s);});}
+    function zeros(n,m){return Array.from({length:n},()=>Array(m).fill(0));}
+    function table(id, cap, A, rows=null, cols=null){
+      const c=document.getElementById(id); if(!c) return; c.innerHTML="";
+      const t=document.createElement('table');
+      if(cap){ const capEl=document.createElement('caption'); capEl.textContent = cap; t.appendChild(capEl); }
+      // header
+      const thead=document.createElement('thead');
+      const trh=document.createElement('tr');
+      const lead=document.createElement('th'); lead.textContent=""; trh.appendChild(lead);
+      const ncols = (A && A[0]) ? A[0].length : 0;
+      for(let j=0;j<ncols;j++){ const th=document.createElement('th'); th.textContent = cols ? cols[j] : `c${j}`; trh.appendChild(th); }
+      thead.appendChild(trh); t.appendChild(thead);
+      // body
+      const tbody=document.createElement('tbody');
+      const fmtCell = (v)=>{
+        if(v===null || v===undefined) return '—';
+        if(typeof v === 'string') return v;
+        const n=Number(v);
+        if(!Number.isFinite(n)) return String(v);
+        return n.toFixed(6);
+      };
+      const nrows = A ? A.length : 0;
+      for(let i=0;i<nrows;i++){
+        const tr=document.createElement('tr');
+        const th=document.createElement('th'); th.textContent = rows ? rows[i] : `r${i}`; tr.appendChild(th);
+        for(let j=0;j<ncols;j++){ const td=document.createElement('td'); td.textContent = fmtCell(A[i][j]); tr.appendChild(td); }
+        tbody.appendChild(tr);
+      }
+      t.appendChild(tbody); c.appendChild(t);
+    }
+
+    // params (identical to forward page)
+    const E=[[0.10,0.00],[0.00,0.20],[0.30,0.10],[0.25,-0.05]];
+    const W_Q=[[1.0,0.0],[0.0,1.0]];
+    const W_K=[[0.5,-0.5],[0.5,0.5]];
+    const W_V=[[0.6,0.2],[-0.1,0.7]];
+    const W_O=[[1,0],[0,1]];
+    const W1=[[0.5,-0.3,0.8,0.0],[0.1,0.2,-0.5,0.7]]; const b1=[0,0,0,0];
+    const W2=[[0.4,-0.2],[0.1,0.3],[-0.6,0.1],[0.2,0.5]]; const b2=[0,0];
+    const W_vocab=[[0.30,-0.20,0.10,0.00],[0.05,0.40,-0.30,0.20]]; const b_vocab=[0.01,0.00,-0.02,0.03];
+
+    // forward (recomputed identically)
+    const t0=2,t1=3; const X=[E[t0].slice(),E[t1].slice()];
+    const Q=matmul(X,W_Q), K=matmul(X,W_K), V=matmul(X,W_V);
+    const S=matmul(Q,transpose(K)).map(r=>r.map(v=>v/Math.sqrt(2))); const mask=[[0,1],[0,0]]; const S_mask=S.map((row,i)=>row.map((v,j)=>mask[i][j]? -1e9: v));
+    const A=softmaxRows(S_mask); const Z=matmul(A,V); const attn_out=matmul(Z,W_O); const H1=add(X,attn_out); const U=addVec(matmul(H1,W1),b1); const R=relu(U); const F=addVec(matmul(R,W2),b2); const H2=add(H1,F); const logits=addVec(matmul(H2,W_vocab),b_vocab); const probs=softmaxRows(logits);
+
+    // show recap
+    table('tbl_logits','logits (copied forward)',logits,["pos0","pos1"],["v0","v1","v2","v3"]);
+    table('tbl_probs','softmax(logits)',probs,["pos0","pos1"],["v0","v1","v2","v3"]);
+
+    // causal LM loss: only pos0 contributes (target = token at pos1=3)
+    const target0=3; const y=[target0, null]; const posMask=[1,0]; const N=posMask.reduce((a,b)=>a+b,0);
+
+    function nllRow(logitRow, y){const m=Math.max(...logitRow); const ex=logitRow.map(z=>Math.exp(z-m)); const sum=ex.reduce((a,b)=>a+b,0); const logsum=m+Math.log(sum); return logsum - logitRow[y];}
+    const nll=[ nllRow(logits[0], target0), 0.0 ];
+    const loss = nll[0] / N;
+
+    // dlogits = (softmax - onehot(y)) * mask / N  (row1 masked → zeros)
+    const dlogits=[ probs[0].map((p,j)=> (p - (j===target0?1:0)) / N), [0,0,0,0] ];
+
+    table('tbl_targets','targets (pos0 only): [3, —]',[[3,'—']],null,["pos0","pos1"]);
+    const tgtExp = `Why it looks like this:
+• Causal LM trains each position t to predict token at t+1 (a one-token right shift).
+• Here, only pos0 contributes, with target id 3 (the actual next token).
+• pos1 is the last token in the sequence; in a real dataset its target would be the special EOS token (or the row is dropped). Because we didn’t include EOS here, pos1 is masked from the loss and shown as an em dash (—).`;
+    const expEl=document.getElementById('targets_explain'); if(expEl) expEl.textContent = tgtExp;
+    table('tbl_mask','loss mask [1,0]',[[1,0]],null,["pos0","pos1"]);
+    table('tbl_nll','per-position NLL',[nll],null,["pos0","pos1"]);
+    table('tbl_loss','loss = mean over masked positions',[[loss]],null,["L"]);
+
+    // NLL explanation (pos0)
+    (function(){
+      const y0 = target0;
+      const row = logits[0];
+      const m = Math.max(...row);
+      const ex = row.map(z => Math.exp(z - m));
+      const sum = ex.reduce((a,b)=>a+b,0);
+      const logsum = m + Math.log(sum);
+      const nll0 = logsum - row[y0];
+      const p = Math.exp(row[y0] - m) / sum;
+      const fmt = (x)=> Number(x).toFixed(6);
+      const lines = [
+        `Why NLL ≈ 1.3549 at pos0:`,
+        `logits[0] = [${row.map(fmt).join(', ')}], target = ${y0}`,
+        `m = max(logits[0]) = ${fmt(m)}`,
+        `exp(logits - m) = [${ex.map(fmt).join(', ')}]` ,
+        `sum = ${fmt(sum)}`,
+        `logsumexp = m + ln(sum) = ${fmt(logsum)}`,
+        `NLL = logsumexp - logit_y = ${fmt(nll0)}`,
+        `softmax_y = ${fmt(p)}  →  -ln(softmax_y) = ${fmt(-Math.log(p))}`
+      ].join('\n');
+      const el = document.getElementById('nll_explain'); if(el) el.textContent = lines;
+    })();
+
+    // grads to vocab head
+    const dH2=matmul(dlogits, transpose(W_vocab));
+    const dW_vocab=matmul(transpose(H2), dlogits);
+    const db_vocab=[ dlogits[0].map((_,j)=> dlogits[0][j] + dlogits[1][j]) ];
+
+    table('tbl_dlogits','∂L/∂logits (masked CE)',dlogits,["pos0","pos1"],["v0","v1","v2","v3"]);
+    // dlogits explanation
+    (function(){
+      const row0 = probs[0];
+      const y0 = target0; // 3
+      const onehot = [0,0,0,0]; onehot[y0] = 1;
+      const d0 = row0.map((p,j)=> (p - onehot[j]) / N);
+      const fmt = x => Number(x).toFixed(6);
+      const lines = [
+        'Definition: ∂L/∂logits = (softmax − onehot(y)) · mask / N (row-wise)',
+        'Here mask = [1,0] and N = 1 (sum of mask).',
+        `softmax[0] = [${row0.map(fmt).join(', ')}]`,
+        `onehot(3)   = [0, 0, 0, 1]`,
+        `∂L/∂logits[0] = softmax[0] − onehot(3) = [${d0.map(fmt).join(', ')}]`,
+        '∂L/∂logits[1] = [0, 0, 0, 0]  (masked row)'
+      ].join('\n');
+      const el = document.getElementById('dlogits_explain'); if(el) el.textContent = lines;
+    })();
+    table('tbl_dW_vocab','∂L/∂W_vocab = H2^T × ∂L/∂logits',dW_vocab,["d0","d1"],["v0","v1","v2","v3"]);
+    table('tbl_db_vocab','∂L/∂b_vocab = sum_rows(∂L/∂logits)',db_vocab,[""],["v0","v1","v2","v3"]);
+    table('tbl_dH2','∂L/∂H2 = (∂L/∂logits) × W_vocab^T',dH2,["pos0","pos1"],["d0","d1"]);
+
+    // through FFN
+    const dF = dH2.map(r=>r.slice());
+    let dH1 = dH2.map(r=>r.slice());
+    const dW2 = matmul(transpose(R), dF);
+    const db2 = [dF[0].map((_,j)=> dF[0][j]+dF[1][j])];
+    const dR = matmul(dF, transpose(W2));
+    const relu_mask = reluMask(U);
+    const dU = hadamard(dR, relu_mask);
+    const dW1 = matmul(transpose(H1), dU);
+    const db1 = [dU[0].map((_,j)=> dU[0][j]+dU[1][j])];
+    const dH1_ffn = matmul(dU, transpose(W1));
+    dH1 = add(dH1, dH1_ffn);
+
+    table('tbl_dF','∂L/∂F = ∂L/∂H2 (from residual of H2)',dF,["pos0","pos1"],["d0","d1"]);
+    table('tbl_dW2','∂L/∂W2 = R^T × ∂L/∂F',dW2,["h0","h1","h2","h3"],["d0","d1"]);
+    table('tbl_db2','∂L/∂b2 = sum_rows(∂L/∂F)',db2,[""],["d0","d1"]);
+    table('tbl_dR','∂L/∂R = ∂L/∂F × W2^T',dR,["pos0","pos1"],["h0","h1","h2","h3"]);
+    table('tbl_dU','∂L/∂U = (∂L/∂R) ⊙ 1[U>0]',dU,["pos0","pos1"],["h0","h1","h2","h3"]);
+    table('tbl_dW1','∂L/∂W1 = H1^T × ∂L/∂U',dW1,["d0","d1"],["h0","h1","h2","h3"]);
+    table('tbl_db1','∂L/∂b1 = sum_rows(∂L/∂U)',db1,[""],["h0","h1","h2","h3"]);
+    table('tbl_dH1_total','∂L/∂H1 (total) = upstream + (∂L/∂U) × W1^T',dH1,["pos0","pos1"],["d0","d1"]);
+
+    // attention back
+    const dattn_out = dH1.map(r=>r.slice());
+    const dW_O = matmul(transpose(Z), dattn_out);
+    const dZ = matmul(dattn_out, transpose(W_O));
+    const dA = matmul(dZ, transpose(V));
+    const dS = dA.map((row,i)=>{ const dot = row.reduce((acc,v,j)=>acc+v*A[i][j],0); return row.map((v,j)=> (v-dot)*A[i][j]); });
+    const dS_masked = dS.map((row,i)=> row.map((v,j)=> mask[i][j]? 0 : v));
+    const dQ = matmul(dS_masked, K).map(r=>r.map(v=> v/Math.sqrt(2)));
+    const dK = matmul(transpose(dS_masked), Q).map(r=>r.map(v=> v/Math.sqrt(2)));
+    const dV = matmul(transpose(A), dZ);
+    const dW_Q = matmul(transpose(X), dQ);
+    const dW_K = matmul(transpose(X), dK);
+    const dW_V = matmul(transpose(X), dV);
+
+    table('tbl_dattn_out','∂L/∂attn_out = ∂L/∂H1 (total)',dattn_out,["pos0","pos1"],["d0","d1"]);
+    table('tbl_dW_O','∂L/∂W_O = Z^T × ∂L/∂attn_out',dW_O,["d0","d1"],["d0","d1"]);
+    table('tbl_dZ','∂L/∂Z = (∂L/∂attn_out) × W_O^T',dZ,["pos0","pos1"],["d0","d1"]);
+    table('tbl_dA','∂L/∂A = (∂L/∂Z) × V^T',dA,["pos0","pos1"],["to0","to1"]);
+    table('tbl_dS','∂L/∂S = (∂L/∂A - ⟨∂L/∂A,A⟩) ⊙ A (masked future=0)',dS_masked,["q@0","q@1"],["k@0","k@1"]);
+    table('tbl_dQ','∂L/∂Q = (∂L/∂S) × K / √2',dQ,["pos0","pos1"],["d0","d1"]);
+    table('tbl_dK','∂L/∂K = (∂L/∂S)^T × Q / √2',dK,["pos0","pos1"],["d0","d1"]);
+    table('tbl_dV','∂L/∂V = A^T × ∂L/∂Z',dV,["pos0","pos1"],["d0","d1"]);
+    table('tbl_dW_Q','∂L/∂W_Q = X^T × ∂L/∂Q',dW_Q,["d0","d1"],["d0","d1"]);
+    table('tbl_dW_K','∂L/∂W_K = X^T × ∂L/∂K',dW_K,["d0","d1"],["d0","d1"]);
+    table('tbl_dW_V','∂L/∂W_V = X^T × ∂L/∂V',dW_V,["d0","d1"],["d0","d1"]);
+
+    // into embeddings
+    const dX_Q = matmul(dQ, transpose(W_Q));
+    const dX_K = matmul(dK, transpose(W_K));
+    const dX_V = matmul(dV, transpose(W_V));
+    let dX = add(add(dX_Q, dX_K), dX_V);
+    dX = add(dX, dH1); // residual path gradient
+
+    const dE = zeros(4,2); // only rows 2 and 3 receive grads
+    for(let j=0;j<2;j++){ dE[2][j]+=dX[0][j]; dE[3][j]+=dX[1][j]; }
+
+    table('tbl_dX','∂L/∂X = ∂L/∂X_Q + ∂L/∂X_K + ∂L/∂X_V + residual',dX,["pos0","pos1"],["d0","d1"]);
+    table('tbl_dE','∂L/∂E (scatter to rows 2,3)',dE,["id0","id1","id2","id3"],["d0","d1"]);
+
+    // shapes panel
+    (function shapes(){const c=document.getElementById('shapes');const t=document.createElement('table');t.innerHTML='<thead><tr><th>tensor</th><th>shape</th></tr></thead>';const rows=[["probs","2×4"],["loss","scalar (pos0 only)"],["dlogits","2×4"],["dH2","2×2"],["dW_vocab","2×4"],["db_vocab","4"],["dF","2×2"],["dW2","4×2"],["db2","2"],["dR","2×4"],["dU","2×4"],["dW1","2×4"],["db1","4"],["dH1_total","2×2"],["dattn_out","2×2"],["dW_O","2×2"],["dZ","2×2"],["dA","2×2"],["dS","2×2"],["dQ","2×2"],["dK","2×2"],["dV","2×2"],["dW_Q","2×2"],["dW_K","2×2"],["dW_V","2×2"],["dX","2×2"],["dE","4×2"]];const tb=document.createElement('tbody');rows.forEach(r=>{const tr=document.createElement('tr');tr.innerHTML=`<td style="text-align:left">${r[0]}</td><td>${r[1]}</td>`;tb.appendChild(tr);});t.appendChild(tb);c.innerHTML="";c.appendChild(t);})();
+  </script>
+</body>
+</html>

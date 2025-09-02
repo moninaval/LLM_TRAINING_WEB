@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tiny Transformer — Adam Optimizer (All Params, Continuation)</title>
+  <style>
+    :root{--bg:#0b1220;--fg:#e5eaf3;--muted:#9aa4b2;--card:#121a2c;--stroke:#2a3550}
+    *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif}
+    header{padding:18px 20px;border-bottom:1px solid var(--stroke);background:#0d1628;position:sticky;top:0;z-index:5}
+    h1{margin:0;font-size:20px}
+    .sub{color:var(--muted);font-size:12px;margin-top:4px}
+    .wrap{display:grid;grid-template-columns: 280px 1fr; gap:18px; padding:18px}
+    .card{background:var(--card);border:1px solid var(--stroke);border-radius:16px;padding:14px;box-shadow:0 6px 16px rgba(0,0,0,.25)}
+    .card h2{font-size:16px;margin:0 0 10px 0}
+    .grid{display:grid; gap:18px}
+    table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--stroke);border-radius:12px;overflow:hidden}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--stroke);text-align:right;font-variant-numeric:tabular-nums}
+    th{background:#0c1426;color:#c6d1e6;text-align:center} tr:last-child td{border-bottom:none}
+    caption{caption-side:top;text-align:left;color:var(--muted);padding-bottom:6px}
+    .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.45;background:#0e1830;color:#b9c3da;border:1px solid var(--stroke);border-radius:12px;padding:10px;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Tiny Transformer — Adam Optimizer (All Params, Continuation)</h1>
+    <div class="sub">Continues the same example as the Loss & Backprop page (tokens [2,3], identical weights). We recompute forward+backward and apply one Adam step (t=1) to <strong>all trainable parameters</strong>. Hyperparams: α=0.1, β₁=0.9, β₂=0.999, ε=1e-8.</div>
+  </header>
+  <div class="wrap">
+    <aside class="card">
+      <h2>Adam (t = 1)</h2>
+      <div class="code">mₜ = β₁·mₜ₋₁ + (1-β₁)·g\nvₜ = β₂·vₜ₋₁ + (1-β₂)·g²\n\n\n\nm̂ₜ = mₜ / (1-β₁ᵗ)\nv̂ₜ = vₜ / (1-β₂ᵗ)\nΔθ = α · m̂ₜ / (√v̂ₜ + ε)\nθ ← θ - Δθ\n\nHere: t=1, m₀=v₀=0 (so m̂₁ = g, v̂₁ = g²/(1-β₂)).</div>
+      <h2 style="margin-top:14px">Shapes</h2>
+      <div id="shapes"></div>
+    </aside>
+    <main class="grid">
+      <section class="card">
+        <h2>Gradients (from backprop)</h2>
+        <div id="tbl_grads"></div>
+      </section>
+      <section class="card">
+        <h2>Adam updates per parameter</h2>
+        <div id="blocks"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // ---------- helpers ----------
+    function matmul(A,B){const n=A.length,m=A[0].length,p=B[0].length;const C=Array.from({length:n},()=>Array(p).fill(0));for(let i=0;i<n;i++)for(let k=0;k<m;k++){const aik=A[i][k];for(let j=0;j<p;j++)C[i][j]+=aik*B[k][j];}return C;}
+    function add(A,B){return A.map((r,i)=>r.map((v,j)=>v+B[i][j]));}
+    function addVec(A,b){return A.map(r=>r.map((v,j)=>v+(b[j]||0)));}
+    function relu(A){return A.map(r=>r.map(v=>Math.max(0,v)));}
+    function reluMask(U){return U.map(r=>r.map(v=>v>0?1:0));}
+    function hadamard(A,B){return A.map((r,i)=>r.map((v,j)=>v*B[i][j]));}
+    function transpose(A){const n=A.length,m=A[0].length;const T=Array.from({length:m},()=>Array(n).fill(0));for(let i=0;i<n;i++)for(let j=0;j<m;j++)T[j][i]=A[i][j];return T;}
+    function softmaxRows(A){return A.map(row=>{const m=Math.max(...row);const ex=row.map(v=>Math.exp(v-m));const s=ex.reduce((a,b)=>a+b,0);return ex.map(v=>v/s);});}
+    function zeros(n,m){return Array.from({length:n},()=>Array(m).fill(0));}
+    function ensure2D(A){return (Array.isArray(A[0]))? A : [A.slice()];}
+    function table(id, cap, A, rows=null, cols=null){A=ensure2D(A);const c=document.getElementById(id);if(!c)return;c.innerHTML="";const t=document.createElement('table');if(cap){const capEl=document.createElement('caption');capEl.textContent=cap;t.appendChild(capEl);}const thead=document.createElement('thead');const trh=document.createElement('tr');const lead=document.createElement('th');lead.textContent="";trh.appendChild(lead);const ncols=A[0]?.length||0;for(let j=0;j<ncols;j++){const th=document.createElement('th');th.textContent=cols?cols[j]:`c${j}`;trh.appendChild(th);}thead.appendChild(trh);t.appendChild(thead);const tbody=document.createElement('tbody');const fmt=(v)=>{if(v===null||v===undefined)return '—';const n=Number(v);return Number.isFinite(n)?n.toFixed(6):String(v)};for(let i=0;i<A.length;i++){const tr=document.createElement('tr');const th=document.createElement('th');th.textContent=rows?rows[i]:`r${i}`;tr.appendChild(th);for(let j=0;j<ncols;j++){const td=document.createElement('td');td.textContent=fmt(A[i][j]);tr.appendChild(td);}tbody.appendChild(tr);}t.appendChild(tbody);c.appendChild(t);}    
+
+    // ---------- parameters (same as forward/backprop page) ----------
+    const E=[[0.10,0.00],[0.00,0.20],[0.30,0.10],[0.25,-0.05]];
+    const W_Q=[[1.0,0.0],[0.0,1.0]];
+    const W_K=[[0.5,-0.5],[0.5,0.5]];
+    const W_V=[[0.6,0.2],[-0.1,0.7]];
+    const W_O=[[1,0],[0,1]];
+    const W1=[[0.5,-0.3,0.8,0.0],[0.1,0.2,-0.5,0.7]]; const b1=[0,0,0,0];
+    const W2=[[0.4,-0.2],[0.1,0.3],[-0.6,0.1],[0.2,0.5]]; const b2=[0,0];
+    const W_vocab=[[0.30,-0.20,0.10,0.00],[0.05,0.40,-0.30,0.20]]; const b_vocab=[0.01,0.00,-0.02,0.03];
+
+    // ---------- forward ----------
+    const t0=2,t1=3; const X=[E[t0].slice(),E[t1].slice()];
+    const Q=matmul(X,W_Q), K=matmul(X,W_K), V=matmul(X,W_V);
+    const S=matmul(Q,transpose(K)).map(r=>r.map(v=>v/Math.sqrt(2))); const mask=[[0,1],[0,0]]; const S_mask=S.map((row,i)=>row.map((v,j)=>mask[i][j]? -1e9: v));
+    const A=softmaxRows(S_mask); const Z=matmul(A,V); const attn_out=matmul(Z,W_O); const H1=add(X,attn_out);
+    const U=addVec(matmul(H1,W1),b1); const R=relu(U); const F=addVec(matmul(R,W2),b2); const H2=add(H1,F);
+    const logits=addVec(matmul(H2,W_vocab),b_vocab); const probs=softmaxRows(logits);
+
+    // ---------- loss (causal, pos0 only) ----------
+    const target0=3; const N=1; // mask [1,0]
+    const dlogits=[ probs[0].map((p,j)=> (p - (j===target0?1:0)) / N), [0,0,0,0] ];
+
+    // ---------- backprop to get all grads ----------
+    const dH2=matmul(dlogits, transpose(W_vocab));
+    const dW_vocab=matmul(transpose(H2), dlogits);
+    const db_vocab=dlogits[0].map((_,j)=> dlogits[0][j] + dlogits[1][j]);
+
+    const dF = dH2.map(r=>r.slice());
+    let dH1 = dH2.map(r=>r.slice());
+    const dW2 = matmul(transpose(R), dF);
+    const db2 = dF[0].map((_,j)=> dF[0][j]+dF[1][j]);
+    const dR = matmul(dF, transpose(W2));
+    const relu_mask = reluMask(U);
+    const dU = hadamard(dR, relu_mask);
+    const dW1 = matmul(transpose(H1), dU);
+    const db1 = dU[0].map((_,j)=> dU[0][j]+dU[1][j]);
+    const dH1_ffn = matmul(dU, transpose(W1));
+    dH1 = add(dH1, dH1_ffn);
+
+    const dattn_out = dH1.map(r=>r.slice());
+    const dW_O = matmul(transpose(Z), dattn_out);
+    const dZ = matmul(dattn_out, transpose(W_O));
+    const dA = matmul(dZ, transpose(V));
+    const dS = dA.map((row,i)=>{ const dot = row.reduce((acc,v,j)=>acc+v*A[i][j],0); return row.map((v,j)=> (v-dot)*A[i][j]); });
+    const dS_masked = dS.map((row,i)=> row.map((v,j)=> mask[i][j]? 0 : v));
+    const dQ = matmul(dS_masked, K).map(r=>r.map(v=> v/Math.sqrt(2)));
+    const dK = matmul(transpose(dS_masked), Q).map(r=>r.map(v=> v/Math.sqrt(2)));
+    const dV = matmul(transpose(A), dZ);
+    const dW_Q = matmul(transpose(X), dQ);
+    const dW_K = matmul(transpose(X), dK);
+    const dW_V = matmul(transpose(X), dV);
+
+    const dX_Q = matmul(dQ, transpose(W_Q));
+    const dX_K = matmul(dK, transpose(W_K));
+    const dX_V = matmul(dV, transpose(W_V));
+    let dX = add(add(dX_Q, dX_K), dX_V);
+    dX = add(dX, dH1);
+
+    const dE = zeros(4,2);
+    for(let j=0;j<2;j++){ dE[2][j]+=dX[0][j]; dE[3][j]+=dX[1][j]; }
+
+    // ---------- shapes panel ----------
+    (function(){
+      const rows=[["∂L/∂E","4×2"],["∂L/∂W_Q","2×2"],["∂L/∂W_K","2×2"],["∂L/∂W_V","2×2"],["∂L/∂W_O","2×2"],["∂L/∂W1","2×4"],["∂L/∂b1","4"],["∂L/∂W2","4×2"],["∂L/∂b2","2"],["∂L/∂W_vocab","2×4"],["∂L/∂b_vocab","4"]];
+      const c=document.getElementById('shapes'); const t=document.createElement('table');
+      t.innerHTML='<thead><tr><th>grad</th><th>shape</th></tr></thead>'; const tb=document.createElement('tbody');
+      rows.forEach(r=>{const tr=document.createElement('tr'); tr.innerHTML='<td style="text-align:left">'+r[0]+'</td><td>'+r[1]+'</td>'; tb.appendChild(tr);});
+      t.appendChild(tb); c.innerHTML=''; c.appendChild(t);
+    })();
+
+    // ---------- gradients list (preview) ----------
+    (function(){
+      const rows=[['dE',dE],['dW_Q',dW_Q],['dW_K',dW_K],['dW_V',dW_V],['dW_O',dW_O],['dW1',dW1],['db1',[db1]],['dW2',dW2],['db2',[db2]],['dW_vocab',dW_vocab],['db_vocab',[db_vocab]]];
+      const t=document.createElement('table'); t.innerHTML='<thead><tr><th>name</th><th>preview (first row)</th></tr></thead>'; const tb=document.createElement('tbody');
+      const fmt=(x)=>Number(x).toFixed(6);
+      rows.forEach(([name,M])=>{const M2=ensure2D(M);const prev=M2[0].slice(0,Math.min(3,M2[0].length)).map(fmt).join(', ');const tr=document.createElement('tr');tr.innerHTML='<td style="text-align:left">'+name+'</td><td>['+prev+(M2[0].length>3?', …':'')+']</td>';tb.appendChild(tr);});
+      t.appendChild(tb); const host=document.getElementById('tbl_grads'); host.innerHTML=''; host.appendChild(t);
+    })();
+
+    // ---------- Adam across all params ----------
+    const alpha=0.1, beta1=0.9, beta2=0.999, eps=1e-8, t_step=1;
+    function zerosLike(A){A=ensure2D(A);return A.map(r=>r.map(_=>0));}
+    function mapMat(A,f){A=ensure2D(A);return A.map(r=>r.map(f));}
+    function addMat(A,B){A=ensure2D(A);B=ensure2D(B);return A.map((r,i)=>r.map((v,j)=>v+B[i][j]));}
+    function subMat(A,B){A=ensure2D(A);B=ensure2D(B);return A.map((r,i)=>r.map((v,j)=>v-B[i][j]));}
+
+    function adamBlock(parent, title, P, G, rows=null, cols=null){
+      P=ensure2D(P); G=ensure2D(G);
+      const m_prev=zerosLike(G), v_prev=zerosLike(G);
+      const m_t=addMat(mapMat(m_prev,x=>beta1*x), mapMat(G,x=>(1-beta1)*x));
+      const v_t=addMat(mapMat(v_prev,x=>beta2*x), mapMat(mapMat(G,x=>x*x), x=>(1-beta2)*x));
+      const m_hat=mapMat(m_t, x=> x/(1-Math.pow(beta1,t_step)) );
+      const v_hat=mapMat(v_t, x=> x/(1-Math.pow(beta2,t_step)) );
+      const update=m_hat.map((r,i)=>r.map((mij,j)=> alpha * mij / (Math.sqrt(v_hat[i][j]) + eps)));
+      const P_new=subMat(P, update);
+
+      const block=document.createElement('div'); block.style.marginBottom='18px';
+      const h=document.createElement('h3'); h.textContent=title; block.appendChild(h);
+      const gid='g_'+Math.random().toString(36).slice(2), mid='m_'+Math.random().toString(36).slice(2), vid='v_'+Math.random().toString(36).slice(2), mhat='mh_'+Math.random().toString(36).slice(2), vhat='vh_'+Math.random().toString(36).slice(2), up='up_'+Math.random().toString(36).slice(2), old='old_'+Math.random().toString(36).slice(2), neu='new_'+Math.random().toString(36).slice(2);
+      block.innerHTML += '<div id="'+gid+'"></div><div id="'+mid+'"></div><div id="'+vid+'"></div><div id="'+mhat+'"></div><div id="'+vhat+'"></div><div id="'+up+'"></div><div id="'+old+'"></div><div id="'+neu+'"></div>';
+      parent.appendChild(block);
+
+      table(gid,'g = ∂L/∂'+title, G, rows, cols);
+      table(mid,'m_t (first moment)', m_t, rows, cols);
+      table(vid,'v_t (second moment)', v_t, rows, cols);
+      table(mhat,'m̂_t (bias-corrected)', m_hat, rows, cols);
+      table(vhat,'v̂_t (bias-corrected)', v_hat, rows, cols);
+      table(up,'Δ'+title+' = α·m̂/(√v̂+ε)', update, rows, cols);
+      table(old,title+' (before)', P, rows, cols);
+      table(neu,title+' (after Adam step)', P_new, rows, cols);
+    }
+
+    (function build(){
+      const host=document.getElementById('blocks');
+      const blocks=[
+        {title:'W_vocab', P:W_vocab, G:dW_vocab, rows:['d0','d1'], cols:['v0','v1','v2','v3']},
+        {title:'b_vocab', P:[b_vocab], G:[db_vocab], rows:[''], cols:['v0','v1','v2','v3']},
+        {title:'W2', P:W2, G:dW2, rows:['h0','h1','h2','h3'], cols:['d0','d1']},
+        {title:'b2', P:[b2], G:[db2], rows:[''], cols:['d0','d1']},
+        {title:'W1', P:W1, G:dW1, rows:['d0','d1'], cols:['h0','h1','h2','h3']},
+        {title:'b1', P:[b1], G:[db1], rows:[''], cols:['h0','h1','h2','h3']},
+        {title:'W_O', P:W_O, G:dW_O, rows:['d0','d1'], cols:['d0','d1']},
+        {title:'W_V', P:W_V, G:dW_V, rows:['d0','d1'], cols:['d0','d1']},
+        {title:'W_K', P:W_K, G:dW_K, rows:['d0','d1'], cols:['d0','d1']},
+        {title:'W_Q', P:W_Q, G:dW_Q, rows:['d0','d1'], cols:['d0','d1']},
+        {title:'E', P:E, G:dE, rows:['id0','id1','id2','id3'], cols:['d0','d1']}
+      ];
+      blocks.forEach(b=> adamBlock(host, b.title, b.P, b.G, b.rows, b.cols));
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tiny Transformer Demo — 1 Layer · 1 Head (seq=2, vocab=4, d=2, FFN=4)</title>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  <style>
+    :root{
+      --bg:#0b1220;--fg:#e5eaf3;--muted:#9aa4b2;--card:#121a2c;--stroke:#2a3550;
+      --accent:#6aa1ff;--ok:#45c486;--warn:#ffb454;--err:#ff6b6b;
+      --emb:#2a3b67;--qkv:#205c64;--attn:#1e6b74;--ffn:#205c38;--logits:#5a3350;--misc:#3b2d52;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;}
+    a{color:var(--accent)}
+    header{padding:18px 20px;border-bottom:1px solid var(--stroke);background:#0d1628;position:sticky;top:0;z-index:5}
+    h1{margin:0;font-size:20px;letter-spacing:.3px}
+    .sub{color:var(--muted);font-size:12px;margin-top:4px}
+
+    .flow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--stroke);background:#0c1528}
+    .arrow{opacity:.6}
+
+    .wrap{display:grid;grid-template-columns: 220px 1fr; gap:18px; padding:18px;}
+    .card{background:var(--card);border:1px solid var(--stroke);border-radius:16px;padding:14px 14px 12px 14px;box-shadow:0 6px 16px rgba(0,0,0,.25)}
+    .card h2{font-size:16px;margin:0 0 10px 0}
+    .card h3{font-size:14px;margin:14px 0 8px 0;color:var(--muted)}
+
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid var(--stroke);color:#cdd6f4}
+    .pill.emb{background:var(--emb)}
+    .pill.qkv{background:var(--qkv)}
+    .pill.attn{background:var(--attn)}
+    .pill.ffn{background:var(--ffn)}
+    .pill.logits{background:var(--logits)}
+    .pill.misc{background:var(--misc)}
+
+    .grid{display:grid;gap:12px}
+    .grid.cols-2{grid-template-columns:1fr 1fr}
+    .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+
+    table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--stroke);border-radius:12px;overflow:hidden}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--stroke);text-align:right;font-variant-numeric:tabular-nums}
+    th{background:#0c1426;color:#c6d1e6;text-align:center}
+    tr:last-child td{border-bottom:none}
+    caption{caption-side:top;text-align:left;color:var(--muted);padding-bottom:6px}
+
+    /* inline explanation blocks */
+    .code{font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; line-height:1.5;
+      background:#0e1830; color:#b9c3da; border:1px solid var(--stroke); border-radius:12px; padding:10px; overflow:auto; white-space:pre-wrap}
+    .code pre{margin:0; white-space:pre-wrap}
+
+    .sidebar-note{font-size:12px;color:var(--muted);margin-top:8px}
+
+    /* badges for backward cache */
+    .anno{margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;border:1px solid var(--stroke)}
+    .badge.saved{background:#153a2e;border-color:#2e7d32;color:#b5f5c8}
+    .badge.optional{background:#3a2f15;border-color:#b8860b;color:#ffe6a3}
+    .badge.nosave{background:#3a1a1a;border-color:#8b2a2a;color:#ffb3b3}
+    .mem{font-size:11px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Tiny Transformer Demo — 1 Layer · 1 Head</h1>
+    <div class="sub">Vocab=4 · SeqLen=2 · d<sub>model</sub>=2 · FFN hidden=4 · <em>No LayerNorm for clarity</em></div>
+  </header>
+  <div class="flow">
+    <span class="pill emb">Embeddings</span>
+    <span class="arrow">→</span>
+    <span class="pill qkv">Q/K/V</span>
+    <span class="arrow">→</span>
+    <span class="pill attn">Scores</span>
+    <span class="arrow">→</span>
+    <span class="pill misc">Mask</span>
+    <span class="arrow">→</span>
+    <span class="pill attn">Softmax A</span>
+    <span class="arrow">→</span>
+    <span class="pill attn">Z</span>
+    <span class="arrow">→</span>
+    <span class="pill attn">attn_out</span>
+    <span class="arrow">→</span>
+    <span class="pill misc">H1</span>
+    <span class="arrow">→</span>
+    <span class="pill ffn">U</span>
+    <span class="arrow">→</span>
+    <span class="pill ffn">R</span>
+    <span class="arrow">→</span>
+    <span class="pill ffn">F</span>
+    <span class="arrow">→</span>
+    <span class="pill misc">H2</span>
+    <span class="arrow">→</span>
+    <span class="pill logits">Logits</span>
+  </div>
+
+  <div class="wrap">
+    <!-- Thin left: shapes only -->
+    <aside class="card">
+      <h2>Shapes</h2>
+      <div id="shapes"></div>
+      <div class="sidebar-note">Fixed example uses token IDs [2,3].</div>
+      <h3 style="margin-top:14px;color:var(--muted)">Backward cache legend</h3>
+      <div class="anno"><span class="badge saved">saved for backward</span><span class="mem">kept to compute gradients</span></div>
+      <div class="anno"><span class="badge optional">recompute OK</span><span class="mem">often recomputed to save memory</span></div>
+      <div class="anno"><span class="badge nosave">not saved</span><span class="mem">not needed as an activation</span></div>
+    </aside>
+
+    <!-- Right content -->
+    <main class="grid">
+      <section class="card">
+        <h2>Parameters</h2>
+        <div class="grid cols-3">
+          <div>
+            <h3 class="pill emb">E [vocab×d]</h3>
+            <div id="tbl_E"></div>
+          </div>
+          <div>
+            <h3 class="pill qkv">W_Q</h3>
+            <div id="tbl_WQ"></div>
+            <h3 class="pill qkv">W_K</h3>
+            <div id="tbl_WK"></div>
+            <h3 class="pill qkv">W_V</h3>
+            <div id="tbl_WV"></div>
+            <h3 class="pill qkv">W_O</h3>
+            <div id="tbl_WO"></div>
+          </div>
+          <div>
+            <h3 class="pill ffn">W1 (2→4)</h3>
+            <div id="tbl_W1"></div>
+            <h3 class="pill ffn">W2 (4→2)</h3>
+            <div id="tbl_W2"></div>
+            <h3 class="pill logits">W_vocab (2→4)</h3>
+            <div id="tbl_WVocab"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Inputs & Embeddings</h2>
+        <div class="grid cols-2">
+          <div>
+            <h3 class="pill misc">Token IDs</h3>
+            <div id="tbl_tokens"></div>
+          </div>
+          <div>
+            <h3 class="pill emb">X</h3>
+            <div id="tbl_X"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Q / K / V</h2>
+        <div class="grid cols-3">
+          <div>
+            <h3 class="pill qkv">Q</h3>
+            <div id="tbl_Q"></div>
+          </div>
+          <div>
+            <h3 class="pill qkv">K</h3>
+            <div id="tbl_K"></div>
+          </div>
+          <div>
+            <h3 class="pill qkv">V</h3>
+            <div id="tbl_V"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Attention</h2>
+        <div class="grid cols-2">
+          <div>
+            <h3 class="pill attn">Scores</h3>
+            <div id="tbl_scores"></div>
+            <h3 class="pill attn">Score matrix — explanation</h3>
+            <div id="scores_explain" class="code"></div>
+            <h3 class="pill misc">Causal mask</h3>
+            <div id="tbl_mask"></div>
+            <h3 class="pill attn">Scores (masked)</h3>
+            <div id="tbl_scores_masked"></div>
+          </div>
+          <div>
+            <h3 class="pill attn">A = softmax(S)</h3>
+            <div id="tbl_attn"></div>
+            <h3 class="pill attn">Z = A × V</h3>
+            <div id="tbl_Z"></div>
+            <h3 class="pill attn">attn_out = Z × W_O</h3>
+            <div id="tbl_attn_out"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>FFN & Block Output</h2>
+        <div class="grid cols-2">
+          <div>
+            <h3 class="pill misc">H1 = X + attn_out</h3>
+            <div id="tbl_H1"></div>
+            <h3 class="pill ffn">U = H1 × W1 + b1</h3>
+            <div id="tbl_U"></div>
+            <h3 class="pill ffn">R = ReLU(U)</h3>
+            <div id="tbl_R"></div>
+          </div>
+          <div>
+            <h3 class="pill ffn">F = R × W2 + b2</h3>
+            <div id="tbl_F"></div>
+            <h3 class="pill misc">H2 = H1 + F</h3>
+            <div id="tbl_H2"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Logits</h2>
+        <div class="grid cols-2">
+          <div>
+            <h3 class="pill logits">logits = H2 × W_vocab + b</h3>
+            <div id="tbl_logits"></div>
+          </div>
+          <div>
+            <h3 class="pill logits">softmax(logits)</h3>
+            <div id="tbl_probs"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // ---------- tiny math helpers ----------
+    function matmul(A,B){
+      const n=A.length, m=A[0].length, p=B[0].length; const C=Array.from({length:n},()=>Array(p).fill(0));
+      for(let i=0;i<n;i++) for(let k=0;k<m;k++){ const aik=A[i][k]; for(let j=0;j<p;j++) C[i][j]+=aik*B[k][j]; }
+      return C;
+    }
+    function add(A,B){return A.map((r,i)=>r.map((v,j)=>v+B[i][j]));}
+    function addVec(A,b){return A.map((r)=>r.map((v,j)=>v+(b[j]||0)));}
+    function relu(A){return A.map(r=>r.map(v=>Math.max(0,v)));}
+    function transpose(A){const n=A.length,m=A[0].length;const T=Array.from({length:m},()=>Array(n).fill(0));for(let i=0;i<n;i++)for(let j=0;j<m;j++)T[j][i]=A[i][j];return T;}
+    function scale(A,s){return A.map(r=>r.map(v=>v*s));}
+    function softmaxRows(A){
+      return A.map(row=>{const m=Math.max(...row);const ex=row.map(v=>Math.exp(v-m));const s=ex.reduce((a,b)=>a+b,0);return ex.map(v=>v/s);});
+    }
+
+    // ---------- fixed config ----------
+    const vocabSize=4, seqLen=2, dModel=2, dK=2, dV=2, ffnHidden=4;
+
+    // Embedding (E[vocab x d])
+    const E=[[0.10, 0.00], [0.00, 0.20], [0.30, 0.10], [0.25,-0.05]];
+
+    // Attention params
+    const W_Q=[[1.0,0.0],[0.0,1.0]];
+    const W_K=[[ 0.5,-0.5],[0.5,0.5]];
+    const W_V=[[ 0.6, 0.2],[-0.1,0.7]];
+    const W_O=[[1,0],[0,1]]; // identity
+
+    // FFN 2->4->2
+    const W1=[[ 0.5,-0.3, 0.8, 0.0],[0.1,0.2,-0.5,0.7]]; const b1=[0,0,0,0];
+    const W2=[[ 0.4,-0.2],[0.1,0.3],[-0.6,0.1],[0.2,0.5]]; const b2=[0,0];
+
+    // Vocab head 2->4
+    const W_vocab=[[ 0.30,-0.20, 0.10, 0.00],[0.05, 0.40,-0.30, 0.20]]; const b_vocab=[0.01,0.00,-0.02,0.03];
+
+    // ---------- rendering helpers ----------
+    function table(containerId, captionHTML, A, rowLabels=null, colLabels=null){
+      const c=document.getElementById(containerId);
+      if(!c) return;
+      c.innerHTML="";
+      const t=document.createElement('table');
+      if(captionHTML){
+        const cap=document.createElement('caption');
+        cap.innerHTML=captionHTML;
+        t.appendChild(cap);
+      }
+      const cols = (A && A[0]) ? A[0].length : 0;
+      const thead=document.createElement('thead');
+      const trh=document.createElement('tr');
+      const leadTh=document.createElement('th');
+      leadTh.textContent=""; // row header
+      trh.appendChild(leadTh);
+      for(let j=0;j<cols;j++){
+        const th=document.createElement('th');
+        th.textContent = colLabels ? colLabels[j] : `c${j}`;
+        trh.appendChild(th);
+      }
+      thead.appendChild(trh);
+      t.appendChild(thead);
+      const tbody=document.createElement('tbody');
+      const rows = A ? A.length : 0;
+      for(let i=0;i<rows;i++){
+        const tr=document.createElement('tr');
+        const th=document.createElement('th');
+        th.textContent = rowLabels ? rowLabels[i] : `r${i}`;
+        tr.appendChild(th);
+        for(let j=0;j<cols;j++){
+          const td=document.createElement('td');
+          td.textContent = Number(A[i][j]).toFixed(6);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      t.appendChild(tbody);
+      c.appendChild(t);
+    }
+
+    function annotate(containerId, status, A, note){
+      const c=document.getElementById(containerId); if(!c) return;
+      const after=document.createElement('div'); after.className='anno';
+      const b=document.createElement('span'); b.className='badge ' + (status||'');
+      b.textContent = status==='saved' ? 'saved for backward' : status==='optional' ? 'recompute OK' : 'not saved';
+      const rows=A?.length||0, cols=(A&&A[0])?A[0].length:0, elems=rows*cols;
+      const fp32=elems*4, fp16=elems*2;
+      const m=document.createElement('span'); m.className='mem'; m.textContent=`shape ${rows}×${cols} · fp32 ${fp32} B · fp16 ${fp16} B`;
+      after.appendChild(b); after.appendChild(m);
+      if(note){ const n=document.createElement('span'); n.className='mem'; n.textContent = ' — ' + note; after.appendChild(n); }
+      c.appendChild(after);
+    }
+
+    function shapesOverview(){
+      const rows=[
+        ["E (embeddings)","4×2"], ["W_Q","2×2"], ["W_K","2×2"], ["W_V","2×2"], ["W_O","2×2"], ["W1","2×4"], ["W2","4×2"], ["W_vocab","2×4"],
+        ["—","—"],
+        ["X (embedded tokens)","2×2"], ["Q","2×2"], ["K","2×2"], ["V","2×2"],
+        ["scores S","2×2"], ["mask","2×2"], ["S (masked)","2×2"], ["A = softmax(S)","2×2"],
+        ["Z","2×2"], ["attn_out","2×2"], ["H1","2×2"], ["U","2×4"], ["R","2×4"], ["F","2×2"], ["H2","2×2"], ["logits","2×4"], ["probs","2×4"]
+      ];
+      const c=document.getElementById('shapes');
+      if(!c) return;
+      const t=document.createElement('table');
+      const thead=document.createElement('thead');
+      thead.innerHTML='<tr><th>name</th><th>shape</th></tr>';
+      t.appendChild(thead);
+      const tbody=document.createElement('tbody');
+      rows.forEach(r=>{const tr=document.createElement('tr'); tr.innerHTML=`<td style="text-align:left">${r[0]}</td><td>${r[1]}</td>`; tbody.appendChild(tr);});
+      t.appendChild(tbody); c.innerHTML=""; c.appendChild(t);
+    }
+
+    // ---------- core forward (fixed tokens [2,3]) ----------
+    function run(){
+      const t0=2, t1=3;
+      const tokens=[[t0,t1]];
+      table('tbl_tokens', 'IDs (fixed example: [2,3])', tokens, ["batch0"],["pos0","pos1"]);
+
+      // X = E[token]
+      const X=[E[t0].slice(), E[t1].slice()];
+      table('tbl_X','X: X_t = onehot(token_t) × E',X,["pos0","pos1"],["d0","d1"]);
+
+      // Q = X W_Q, K = X W_K, V = X W_V
+      const Q=matmul(X,W_Q), K=matmul(X,W_K), V=matmul(X,W_V);
+      table('tbl_Q','Q: Q = X × W_Q',Q,["pos0","pos1"],["d0","d1"]);
+      table('tbl_K','K: K = X × W_K',K,["pos0","pos1"],["d0","d1"]);
+      table('tbl_V','V: V = X × W_V',V,["pos0","pos1"],["d0","d1"]);
+
+      // scores = Q K^T / sqrt(dK)
+      const scores=scale(matmul(Q,transpose(K)), 1/Math.sqrt(dK));
+      table('tbl_scores','S: S = (Q × K^T)/sqrt(d_k)',scores,["q@0","q@1"],["k@0","k@1"]);
+
+      // causal mask
+      const mask=[[0,1],[0,0]]; // 1 = future masked
+      table('tbl_mask','mask (1 = future masked)',mask,["from pos0","from pos1"],["to pos0","to pos1"]);
+
+      // apply mask -> -1e9
+      const scores_masked = scores.map((row,i)=>row.map((v,j)=> mask[i][j] ? -1e9 : v));
+      table('tbl_scores_masked','S (masked): set future to -1e9',scores_masked,["q@0","q@1"],["k@0","k@1"]);
+
+      // A = softmax(S)
+      const A=softmaxRows(scores_masked);
+      table('tbl_attn','A: softmax row-wise',A,["pos0","pos1"],["to pos0","to pos1"]);
+
+      // --- Human-friendly explanation for the score matrix and attention (no LaTeX) ---
+      const fmt = (x)=> Number(x).toFixed(6);
+      const explain = [
+        'Definition:  S[i,j] = (Q[i] · K[j]) / sqrt(d_k)',
+        '',
+        `Q[0]=[${fmt(Q[0][0])}, ${fmt(Q[0][1])}]   K[0]=[${fmt(K[0][0])}, ${fmt(K[0][1])}]`,
+        `Q[1]=[${fmt(Q[1][0])}, ${fmt(Q[1][1])}]   K[1]=[${fmt(K[1][0])}, ${fmt(K[1][1])}]`,
+        '',
+        'Scores (pre-mask):',
+        `S[0,0]=${fmt(scores[0][0])}   S[0,1]=${fmt(scores[0][1])}`,
+        `S[1,0]=${fmt(scores[1][0])}   S[1,1]=${fmt(scores[1][1])}`,
+        '',
+        'Causal mask: set future j>i to -inf → S[0,1] becomes -inf',
+        '',
+        'Row-wise softmax → attention A:',
+        `A[0]=[${fmt(A[0][0])}, ${fmt(A[0][1])}]`,
+        `A[1]=[${fmt(A[1][0])}, ${fmt(A[1][1])}]`
+      ].join('\n');
+      const box = document.getElementById('scores_explain');
+      if(box){ box.innerHTML = `<pre>${explain}</pre>`; }
+
+      // Z = A V, attn_out = Z W_O, H1 = X + attn_out
+      const Z=matmul(A,V); table('tbl_Z','Z: Z = A × V',Z,["pos0","pos1"],["d0","d1"]);
+      const attn_out=matmul(Z,W_O); table('tbl_attn_out','attn_out: attn_out = Z × W_O',attn_out,["pos0","pos1"],["d0","d1"]);
+      const H1=add(X,attn_out); table('tbl_H1','H1: H1 = X + attn_out',H1,["pos0","pos1"],["d0","d1"]);
+
+      // FFN: U = H1 W1 + b1; R = ReLU(U); F = R W2 + b2; H2 = H1 + F
+      const U=addVec(matmul(H1,W1), b1); table('tbl_U','U: U = H1 × W1 + b1',U,["pos0","pos1"],["h0","h1","h2","h3"]);
+      const R=relu(U); table('tbl_R','R: R = ReLU(U)',R,["pos0","pos1"],["h0","h1","h2","h3"]);
+      const F=addVec(matmul(R,W2), b2); table('tbl_F','F: F = R × W_2 + b_2',F,["pos0","pos1"],["d0","d1"]);
+      const H2=add(H1,F); table('tbl_H2','H2: H2 = H1 + F',H2,["pos0","pos1"],["d0","d1"]);
+
+      // logits
+      const logits=addVec(matmul(H2,W_vocab), b_vocab); table('tbl_logits','logits: logits = H2 × W_vocab + b_vocab',logits,["pos0","pos1"],["v0","v1","v2","v3"]);
+      const probs=softmaxRows(logits); table('tbl_probs','softmax(logits)',probs,["pos0","pos1"],["v0","v1","v2","v3"]);
+
+      // annotate saved activations and memory costs
+      annotate('tbl_X','saved',X,'needed for Q/K/V projections');
+      annotate('tbl_Q','saved',Q,'input to score matmul; grads to W_Q');
+      annotate('tbl_K','saved',K,'input to score matmul; grads to W_K');
+      annotate('tbl_V','saved',V,'used in Z = A × V; grads to W_V');
+      annotate('tbl_scores','optional',scores,'recompute from Q, K');
+      annotate('tbl_mask','nosave',[[0,1],[0,0]],'static');
+      annotate('tbl_scores_masked','nosave',scores_masked,'derived from S + mask');
+      annotate('tbl_attn','saved',A,'softmax outputs needed for backward');
+      annotate('tbl_Z','saved',Z,'input to W_O linear');
+      annotate('tbl_attn_out','nosave',attn_out,'linear output; grad uses upstream + Z');
+      annotate('tbl_H1','saved',H1,'input to FFN');
+      annotate('tbl_U','saved',U,'or ReLU bitmask');
+      annotate('tbl_R','saved',R,'input to second FFN linear');
+      annotate('tbl_F','nosave',F,'residual add output');
+      annotate('tbl_H2','saved',H2,'input to vocab linear');
+      annotate('tbl_logits','optional',logits,'kept until cross-entropy backward');
+      annotate('tbl_probs','nosave',probs,'not needed with fused CE');
+
+      if(window.MathJax && window.MathJax.typeset){ window.MathJax.typeset(); }
+    }
+
+    function renderParams(){
+      table('tbl_E','E: vocabulary embeddings',E,["id0","id1","id2","id3"],["d0","d1"]);
+      table('tbl_WQ','W_Q (used in: Q = X × W_Q)',W_Q,["d0","d1"],["d0","d1"]);
+      table('tbl_WK','W_K (used in: K = X × W_K)',W_K,["d0","d1"],["d0","d1"]);
+      table('tbl_WV','W_V (used in: V = X × W_V)',W_V,["d0","d1"],["d0","d1"]);
+      table('tbl_WO','W_O (used in: attn_out = Z × W_O)',W_O,["d0","d1"],["d0","d1"]);
+      table('tbl_W1','W1 (used in: U = H1 × W1 + b1)',W1,["d0","d1"],["h0","h1","h2","h3"]);
+      table('tbl_W2','W2 (used in: F = R × W2 + b2)',W2,["h0","h1","h2","h3"],["d0","d1"]);
+      table('tbl_WVocab','W_vocab (used in: logits = H2 × W_vocab + b_vocab)',W_vocab,["d0","d1"],["v0","v1","v2","v3"]);
+      if(window.MathJax && window.MathJax.typeset){ window.MathJax.typeset(); }
+    }
+    // (removed stray declaration that hid the real matrices)
+
+    // Render all after DOM is ready
+    window.addEventListener('DOMContentLoaded', () => {
+      shapesOverview();
+      renderParams();
+      run();
+    });
+  </script>
+</body>
+</html>
